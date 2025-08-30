@@ -1,5 +1,5 @@
 // Dr. Water - Intelligent Cartridge Monitoring System Firmware
-// Version 2.1 - First-Run Init & Floating-Point Volume
+// Version 2.2 - Technician Password Reset Feature
 
 #include <EEPROM.h>
 
@@ -25,6 +25,10 @@ const float CARTRIDGE_LIFESPANS[NUM_CARTRIDGES] = {
   20000.0,  // Cartridge 6
   23000.0   // Cartridge 7
 };
+
+// --- Security Credentials ---
+const String TECH_USER_ID = "drwtr01";
+const String TECH_PASSWORD = "1234";
 
 // --- Global Variables ---
 float totalSystemVolume = 0.0;
@@ -55,28 +59,13 @@ void onPulse() {
 // --- Setup Function ---
 void setup() {
   Serial.begin(9600);
-  Serial.println("Dr. Water - Advanced Monitor Initializing...");
+  Serial.println("\n\nDr. Water - Advanced Monitor Initializing...");
 
   int initFlag;
   EEPROM.get(ADDR_INIT_FLAG, initFlag);
 
   if (initFlag != INIT_FLAG_VALUE) {
-    // This is the first time the device has run. Initialize everything to 0.
-    Serial.println("First run detected. Initializing EEPROM...");
-    totalSystemVolume = 0.0;
-    for (int i = 0; i < NUM_CARTRIDGES; i++) {
-      cartridgeResetAt[i] = 0.0;
-    }
-    highestSpeedLPM = 0.0;
-
-    // Save the clean, zeroed values to EEPROM
-    EEPROM.put(ADDR_VOLUME, totalSystemVolume);
-    EEPROM.put(ADDR_RESETS, cartridgeResetAt);
-    EEPROM.put(ADDR_HIGHEST_SPEED, highestSpeedLPM);
-
-    // Set the flag so this block doesn't run again
-    EEPROM.put(ADDR_INIT_FLAG, INIT_FLAG_VALUE);
-    Serial.println("Initialization complete.");
+    initializeEEPROM();
   } else {
     // Not the first run, load existing data as usual.
     Serial.println("Loading existing data from EEPROM.");
@@ -92,11 +81,18 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(flowSensorPin), onPulse, FALLING);
 
   Serial.println("System Ready. Monitoring flow...");
+  Serial.println("Enter 'h' for Hard Reset or 'c=N' (e.g., c=1) to reset a cartridge.");
   lastUpdateTime = millis();
 }
 
 // --- Main Loop ---
 void loop() {
+  // Check for serial commands
+  if (Serial.available() > 0) {
+    processSerialCommand();
+  }
+  
+  // Update report every second
   if (millis() - lastUpdateTime >= 1000) {
     calculateSpeed();
     processTotalVolume();
@@ -127,45 +123,35 @@ void processTotalVolume() {
   interrupts();
 
   if (pulses > 0) {
-    // Calculate the fractional liters that have passed
     float litersPassed = (float)pulses / PULSES_PER_LITER;
     totalSystemVolume += litersPassed;
-    
-    // Save the new total volume permanently
     EEPROM.put(ADDR_VOLUME, totalSystemVolume);
   }
 }
 
 void printSerialReport() {
   Serial.println("--- Dr. Water Live System Status ---");
-  
   Serial.print("Total Volume Passed: ");
-  Serial.print(totalSystemVolume, 2); // Print with 2 decimal places
+  Serial.print(totalSystemVolume, 2);
   Serial.println(" L");
-
   Serial.print("Current Flow Rate:   ");
   Serial.print(currentSpeedLPM, 2);
   Serial.println(" L/min");
-
   Serial.print("Highest Recorded:    ");
   Serial.print(highestSpeedLPM, 2);
   Serial.println(" L/min");
-
   Serial.println("\n--- Cartridge Status ---");
-
   for (int i = 0; i < NUM_CARTRIDGES; i++) {
     float currentUsage = totalSystemVolume - cartridgeResetAt[i];
     float lifespan = CARTRIDGE_LIFESPANS[i];
     float litersLeft = lifespan - currentUsage;
     if (litersLeft < 0) litersLeft = 0;
-
     String status = "OK";
     if (currentUsage >= lifespan) {
       status = "REPLACE";
     } else if (currentUsage >= lifespan * 0.9) {
       status = "Warning";
     }
-    
     Serial.print("Cartridge #");
     Serial.print(i + 1);
     Serial.print(": [Status: ");
@@ -177,5 +163,86 @@ void printSerialReport() {
     Serial.println("L");
   }
   Serial.println("-------------------------------------\n");
+}
+
+// --- New Functions for Technician Reset ---
+
+void processSerialCommand() {
+  String command = Serial.readStringUntil('\n');
+  command.trim();
+
+  if (command == "h") {
+    handleHardReset();
+  } else if (command.startsWith("c=")) {
+    int cartridgeNum = command.substring(2).toInt();
+    handleCartridgeReset(cartridgeNum);
+  }
+}
+
+bool checkPassword() {
+  Serial.println("Technician Authentication Required.");
+  Serial.print("Enter User ID: ");
+  String userID = readSerialLine();
+  Serial.print("Enter Password: ");
+  String password = readSerialLine();
+
+  if (userID == TECH_USER_ID && password == TECH_PASSWORD) {
+    Serial.println("Authentication successful.");
+    return true;
+  } else {
+    Serial.println("Authentication failed. Aborting.");
+    return false;
+  }
+}
+
+String readSerialLine() {
+  while (Serial.available() == 0) {
+    // Wait for user input
+  }
+  String line = Serial.readStringUntil('\n');
+  line.trim();
+  return line;
+}
+
+void handleHardReset() {
+  if (checkPassword()) {
+    Serial.println("Performing Hard Reset. All data will be wiped.");
+    initializeEEPROM();
+    Serial.println("Hard Reset complete. System will now restart.");
+    delay(1000);
+    // Force a software reset
+    asm volatile ("jmp 0");
+  }
+}
+
+void handleCartridgeReset(int cartridgeNum) {
+  if (cartridgeNum < 1 || cartridgeNum > NUM_CARTRIDGES) {
+    Serial.println("Invalid cartridge number.");
+    return;
+  }
+  
+  if (checkPassword()) {
+    int index = cartridgeNum - 1;
+    cartridgeResetAt[index] = totalSystemVolume;
+    EEPROM.put(ADDR_RESETS, cartridgeResetAt); // Save the entire updated array
+    Serial.print("Cartridge #");
+    Serial.print(cartridgeNum);
+    Serial.println(" has been reset.");
+  }
+}
+
+void initializeEEPROM() {
+  Serial.println("First run detected or Hard Reset initiated. Initializing EEPROM...");
+  totalSystemVolume = 0.0;
+  for (int i = 0; i < NUM_CARTRIDGES; i++) {
+    cartridgeResetAt[i] = 0.0;
+  }
+  highestSpeedLPM = 0.0;
+
+  EEPROM.put(ADDR_VOLUME, totalSystemVolume);
+  EEPROM.put(ADDR_RESETS, cartridgeResetAt);
+  EEPROM.put(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+  EEPROM.put(ADDR_INIT_FLAG, INIT_FLAG_VALUE);
+  Serial.println("Initialization complete.");
 }
 
