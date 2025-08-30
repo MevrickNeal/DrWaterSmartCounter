@@ -1,5 +1,6 @@
 // Dr. Water - Intelligent Cartridge Monitoring System Firmware
 // Version 2.2 - Technician Password Reset Feature
+// By LianMollick
 
 #include <EEPROM.h>
 
