@@ -1,5 +1,5 @@
 // Dr. Water - Intelligent Cartridge Monitoring System Firmware
-// Version 1.5 - Arduino Uno with Multi-Cartridge Tracking for Web App
+// Version 2.1 - First-Run Init & Floating-Point Volume
 
 #include <EEPROM.h>
 
@@ -10,95 +10,172 @@ const int flowSensorPin = 2;
 
 // Calibration: Pulses from the sensor per liter of water.
 const int PULSES_PER_LITER = 450;
+// Calibration for speed: Based on datasheet, F(Hz) = 7.5 * Q(L/min)
+const float FLOW_RATE_COEFFICIENT = 7.5; 
 
 // --- Cartridge Configuration ---
-const int NUM_CARTRIDGES = 4;
-const unsigned long CARTRIDGE_LIFESPANS[NUM_CARTRIDGES] = {
-  700,    // Cartridge 1
-  1000,   // Cartridge 2
-  1200,   // Cartridge 3
-  15000   // Cartridge 4
+const int NUM_CARTRIDGES = 7;
+// Lifespans are now floats to match the new volume tracking
+const float CARTRIDGE_LIFESPANS[NUM_CARTRIDGES] = {
+  700.0,    // Cartridge 1
+  1000.0,   // Cartridge 2
+  1200.0,   // Cartridge 3
+  1500.0,   // Cartridge 4
+  18000.0,  // Cartridge 5
+  20000.0,  // Cartridge 6
+  23000.0   // Cartridge 7
 };
 
 // --- Global Variables ---
-unsigned long totalSystemVolume = 0;
-// Array to store the 'totalSystemVolume' when each cartridge was last reset
-unsigned long cartridgeResetAt[NUM_CARTRIDGES] = {0, 0, 0, 0};
-volatile unsigned long pulseCount = 0;
-unsigned long lastSerialSend = 0;
+float totalSystemVolume = 0.0;
+float cartridgeResetAt[NUM_CARTRIDGES] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+volatile unsigned long pulseCount = 0; // For total volume
+volatile unsigned int pulseCountForSpeed = 0; // For current speed calculation
+
+float currentSpeedLPM = 0.0; // Liters Per Minute
+float highestSpeedLPM = 0.0;
+
+unsigned long lastUpdateTime = 0; // For timing the 1-second updates
 
 // --- EEPROM Address Management ---
-const int ADDR_VOLUME = 0; // Address for totalSystemVolume
-const int ADDR_RESETS = 4; // Starting address for the reset array (1 unsigned long = 4 bytes)
+const int ADDR_VOLUME = 0;                     // Address for totalSystemVolume (4 bytes)
+const int ADDR_RESETS = 4;                     // Start address for reset array (7 * 4 = 28 bytes)
+const int ADDR_HIGHEST_SPEED = 32;             // Address for highestSpeedLPM (4 bytes)
+const int ADDR_INIT_FLAG = 36;                 // Address to check if EEPROM is initialized
+
+const int INIT_FLAG_VALUE = 123; // A "magic number" to verify initialization
 
 // --- Interrupt Service Routine (ISR) ---
 void onPulse() {
   pulseCount++;
+  pulseCountForSpeed++;
 }
 
 // --- Setup Function ---
 void setup() {
   Serial.begin(9600);
-  Serial.println("Arduino Ready. Loading data...");
+  Serial.println("Dr. Water - Advanced Monitor Initializing...");
 
-  // Load the last saved data from permanent EEPROM memory.
-  EEPROM.get(ADDR_VOLUME, totalSystemVolume);
-  EEPROM.get(ADDR_RESETS, cartridgeResetAt);
+  int initFlag;
+  EEPROM.get(ADDR_INIT_FLAG, initFlag);
+
+  if (initFlag != INIT_FLAG_VALUE) {
+    // This is the first time the device has run. Initialize everything to 0.
+    Serial.println("First run detected. Initializing EEPROM...");
+    totalSystemVolume = 0.0;
+    for (int i = 0; i < NUM_CARTRIDGES; i++) {
+      cartridgeResetAt[i] = 0.0;
+    }
+    highestSpeedLPM = 0.0;
+
+    // Save the clean, zeroed values to EEPROM
+    EEPROM.put(ADDR_VOLUME, totalSystemVolume);
+    EEPROM.put(ADDR_RESETS, cartridgeResetAt);
+    EEPROM.put(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+
+    // Set the flag so this block doesn't run again
+    EEPROM.put(ADDR_INIT_FLAG, INIT_FLAG_VALUE);
+    Serial.println("Initialization complete.");
+  } else {
+    // Not the first run, load existing data as usual.
+    Serial.println("Loading existing data from EEPROM.");
+    EEPROM.get(ADDR_VOLUME, totalSystemVolume);
+    EEPROM.get(ADDR_RESETS, cartridgeResetAt);
+    EEPROM.get(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+  }
   
-  Serial.print("Initial volume loaded: ");
-  Serial.println(totalSystemVolume);
+  Serial.print("Initial Total Volume: ");
+  Serial.println(totalSystemVolume, 2); // Print with 2 decimal places
 
-  // Configure the flow sensor pin.
   pinMode(flowSensorPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(flowSensorPin), onPulse, FALLING);
 
-  Serial.println("System Ready. Monitoring water flow...");
+  Serial.println("System Ready. Monitoring flow...");
+  lastUpdateTime = millis();
 }
 
 // --- Main Loop ---
 void loop() {
-  processPulses();
-
-  // Send the system status to the serial port every 1 second.
-  if (millis() - lastSerialSend > 1000) {
-    sendSerialData();
-    lastSerialSend = millis();
+  if (millis() - lastUpdateTime >= 1000) {
+    calculateSpeed();
+    processTotalVolume();
+    printSerialReport();
+    lastUpdateTime = millis();
   }
 }
 
 // --- Core Functions ---
-void processPulses() {
-  if (pulseCount >= PULSES_PER_LITER) {
-    noInterrupts();
-    pulseCount -= PULSES_PER_LITER;
-    interrupts();
+void calculateSpeed() {
+  noInterrupts();
+  unsigned int pulses = pulseCountForSpeed;
+  pulseCountForSpeed = 0;
+  interrupts();
+  
+  currentSpeedLPM = (float)pulses / FLOW_RATE_COEFFICIENT;
 
-    totalSystemVolume++;
-    // Save the new volume permanently.
+  if (currentSpeedLPM > highestSpeedLPM) {
+    highestSpeedLPM = currentSpeedLPM;
+    EEPROM.put(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+  }
+}
+
+void processTotalVolume() {
+  noInterrupts();
+  unsigned long pulses = pulseCount;
+  pulseCount = 0; // Reset after reading
+  interrupts();
+
+  if (pulses > 0) {
+    // Calculate the fractional liters that have passed
+    float litersPassed = (float)pulses / PULSES_PER_LITER;
+    totalSystemVolume += litersPassed;
+    
+    // Save the new total volume permanently
     EEPROM.put(ADDR_VOLUME, totalSystemVolume);
   }
 }
 
-void sendSerialData() {
-  // We send data as a comma-separated string:
-  // totalVolume,cart1_status,cart2_status,cart3_status,cart4_status
-  // Status: 0=OK, 1=Warning, 2=Replace
+void printSerialReport() {
+  Serial.println("--- Dr. Water Live System Status ---");
   
-  Serial.print(totalSystemVolume);
+  Serial.print("Total Volume Passed: ");
+  Serial.print(totalSystemVolume, 2); // Print with 2 decimal places
+  Serial.println(" L");
+
+  Serial.print("Current Flow Rate:   ");
+  Serial.print(currentSpeedLPM, 2);
+  Serial.println(" L/min");
+
+  Serial.print("Highest Recorded:    ");
+  Serial.print(highestSpeedLPM, 2);
+  Serial.println(" L/min");
+
+  Serial.println("\n--- Cartridge Status ---");
 
   for (int i = 0; i < NUM_CARTRIDGES; i++) {
-    Serial.print(",");
-    unsigned long currentUsage = totalSystemVolume - cartridgeResetAt[i];
-    unsigned long lifespan = CARTRIDGE_LIFESPANS[i];
-    int status = 0; // Default to OK
+    float currentUsage = totalSystemVolume - cartridgeResetAt[i];
+    float lifespan = CARTRIDGE_LIFESPANS[i];
+    float litersLeft = lifespan - currentUsage;
+    if (litersLeft < 0) litersLeft = 0;
 
+    String status = "OK";
     if (currentUsage >= lifespan) {
-      status = 2; // Replace
+      status = "REPLACE";
     } else if (currentUsage >= lifespan * 0.9) {
-      status = 1; // Warning
+      status = "Warning";
     }
+    
+    Serial.print("Cartridge #");
+    Serial.print(i + 1);
+    Serial.print(": [Status: ");
     Serial.print(status);
+    Serial.print("] - Used: ");
+    Serial.print(currentUsage, 2);
+    Serial.print("L, Remaining: ");
+    Serial.print(litersLeft, 2);
+    Serial.println("L");
   }
-  Serial.println(); // Send a newline to mark the end of the message
+  Serial.println("-------------------------------------\n");
 }
 
