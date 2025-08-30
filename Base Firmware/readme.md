@@ -1,68 +1,85 @@
 Dr. Water - Intelligent Cartridge Monitoring System
-Overview
-This repository contains the Arduino firmware for an intelligent water purifier monitoring system. The system accurately tracks water usage to determine the remaining lifespan of up to seven individual filter cartridges. It provides real-time status updates via the Serial Monitor and includes a password-protected interface for technician maintenance, ensuring data integrity and reliable service.
+Version: 2.2
 
-All critical data, including total water volume and individual cartridge reset points, is persistently stored in the Arduino's EEPROM, making the system resilient to power failures.
+Platform: Arduino Uno
 
-Features
-Real-Time Flow Tracking: Measures both the current flow rate (Liters/min) and the total cumulative volume of water processed (Liters).
+Author: Lian Mollick
 
-Multi-Cartridge Monitoring: Independently tracks the lifecycle of 7 separate filter cartridges, each with a configurable lifespan.
+Date: August 31, 2025
 
-Persistent Memory: All data is saved to EEPROM, ensuring no data loss during power outages or system resets.
+1. Project Synopsis
+This project provides the firmware for an intelligent monitoring system designed for Dr. Water multi-stage purifiers. The system solves a critical customer pain point by accurately tracking the real-time usage of each individual filter cartridge and providing clear, predictive alerts for replacement.
 
-Advanced Metrics: Records and retains the highest flow rate ever achieved by the system.
+Instead of relying on simple timers, this firmware uses a water flow sensor to measure the exact volume of water processed, ensuring that cartridges are replaced based on actual usage. The system also includes a secure, password-protected interface for technicians to perform maintenance, such as resetting individual cartridge counters or performing a full system reset.
 
-Smart Alerts: Provides three levels of status for each cartridge: OK, Warning (at 90% usage), and REPLACE.
+2. Key Features
+Precision Volume Tracking: Measures the total cumulative volume of filtered water with floating-point accuracy.
 
-First-Run Initialization: Automatically detects if the device is being run for the first time and initializes all counters to zero, preventing issues from random EEPROM data.
+Real-time Flow Metrics: Monitors and displays both the current flow rate (L/min) and the highest-ever recorded rate.
 
-Technician Service Menu: A secure, password-protected command interface accessible via the Serial Monitor for system maintenance.
+Multi-Cartridge Lifespan Management: Independently tracks the usage and remaining life for up to seven different filter cartridges, each with a unique lifespan.
 
-Hardware Requirements
-Arduino Uno (or a compatible board)
+Predictive Alerts: Provides two-stage status indicators for each cartridge:
 
-YF-S201 Hall Effect Water Flow Sensor
+Warning: When a cartridge reaches 90% of its lifespan.
 
-5V DC Power Supply
+REPLACE: When a cartridge has reached its full rated capacity.
 
-Setup and Installation
-Hardware Connection:
+Persistent Data Storage: All system data (total volume, reset points, max speed) is saved to the Arduino's EEPROM, making it immune to power loss or system reboots.
 
-Connect the Red wire (VCC) of the flow sensor to the 5V pin on the Arduino.
+Secure Technician Interface: A password-protected command system accessible via the Serial Monitor for authorized maintenance.
 
-Connect the Black wire (GND) of the flow sensor to a GND pin on the Arduino.
+Cartridge Reset (c=N): Resets the counter for a specific cartridge after replacement without affecting others.
 
-Connect the Yellow wire (Signal) of the flow sensor to Digital Pin 2 on the Arduino. This pin is required as it supports interrupts.
+Hard Reset (h): Wipes all data and restores the system to its initial factory state.
 
-Firmware Upload:
+3. Hardware Requirements
+To build the prototype, the following components are required:
 
-Open the water_purifier_firmware.ino file in the Arduino IDE.
+Microcontroller: Arduino Uno
 
-Go to Tools > Board and select "Arduino Uno".
+Sensor: YF-S201 Hall Effect Water Flow Sensor
 
-Go to Tools > Port and select the correct COM port for your board.
+Power Supply: 5V DC Power Adapter (1A recommended)
 
-Click the Upload button.
+Connectivity: USB-A to USB-B cable for programming and serial monitoring
 
-Monitoring:
+4. Firmware Installation & Setup
+Open the Firmware: Launch the Arduino IDE and open the water_purifier_firmware.ino file.
 
-Once the firmware is uploaded, open the Serial Monitor (Tools > Serial Monitor).
+Select Board: Navigate to Tools > Board > Arduino AVR Boards and select "Arduino Uno".
 
-Set the baud rate to 9600. The system will begin printing its live status report every second.
+Select Port: Go to Tools > Port and choose the COM port corresponding to your connected Arduino.
 
-Technician Commands
-To access the service menu, enter commands into the Serial Monitor and press Enter. You will be prompted for authentication.
+Upload: Click the "Upload" button (→) to flash the firmware onto the Arduino Uno.
 
-Default User ID: drwtr01
+5. System Operation & Technician Commands
+Standard Monitoring
+After uploading the firmware, open the Serial Monitor (Tools > Serial Monitor).
 
-Default Password: 1234
+Set the baud rate to 9600.
 
-Commands
-Hard Reset (h):
+The system will boot up and, every second, print a detailed live status report of the entire system and each cartridge.
 
-Wipes all data from the EEPROM and resets the system to its factory state. This includes the total volume counter, all cartridge reset points, and the highest recorded speed.
+Technician Maintenance Commands
+To perform maintenance, type one of the following commands into the input field of the Serial Monitor and press Enter.
 
-Usage: Type h and press Enter. Follow the authentication prompts.
+Command
 
-Cartridge Reset (c=N):
+Action
+
+h
+
+Initiate Hard Reset: Wipes all system data.
+
+c=N
+
+Reset Cartridge: Resets the counter for a specific cartridge N (e.g., c=1 for Cartridge 1, c=5 for Cartridge 5).
+
+Upon entering a command, the system will prompt for authentication.
+
+User ID: drwtr01
+
+Password: 1234
+
+Authentication is required for both hard resets and individual cartridge resets. An incorrect login will abort the operation.
