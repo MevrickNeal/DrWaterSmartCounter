@@ -1,9 +1,10 @@
 /**
  * Dr. Water - Intelligent Cartridge Monitoring System
- * Version: 3.0 (ESP8266 Standalone Web Server)
- * * This firmware turns an ESP8266 into a standalone monitoring device.
+ * Version: 3.2 (ESP8266 Standalone Web Server + Serial Control Fallback)
+ * This firmware turns an ESP8266 into a standalone monitoring device.
  * It creates its own Wi-Fi Access Point and serves a web interface
- * for real-time monitoring and control.
+ * for real-time monitoring and control. It also includes a full
+ * serial command interface for maintenance and debugging.
  */
 
 // --- LIBRARIES ---
@@ -117,7 +118,7 @@ void processTotalVolume() {
     }
 }
 
-// --- NEW ESP8266-SPECIFIC FUNCTIONS ---
+// --- ESP8266-SPECIFIC FUNCTIONS ---
 
 void updateCartridgeLEDs() {
     for (int i = 0; i < 7; i++) {
@@ -148,11 +149,54 @@ void checkManualResetButtons() {
     }
 }
 
+// --- NEW SERIAL COMMAND HANDLER ---
+void checkSerialCommands() {
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+
+        if (command == "h" || command.startsWith("c=")) {
+            Serial.println("\n--- Authentication Required ---");
+            Serial.print("Enter User ID: ");
+            String userId;
+            while (Serial.available() == 0) { } // Wait for input
+            userId = Serial.readStringUntil('\n');
+            userId.trim();
+
+            Serial.print("Enter Password: ");
+            String pass;
+            while (Serial.available() == 0) { } // Wait for input
+            pass = Serial.readStringUntil('\n');
+            pass.trim();
+
+            if (userId == "drwtr01" && pass == "1234") {
+                Serial.println("Authentication Successful!");
+                if (command == "h") {
+                    Serial.println("Executing Hard Reset...");
+                    hardResetSystem();
+                    Serial.println("System has been reset to factory defaults.");
+                } else if (command.startsWith("c=")) {
+                    int cartNum = command.substring(2).toInt();
+                    if (cartNum >= 1 && cartNum <= 7) {
+                        resetCartridge(cartNum - 1);
+                        Serial.printf("Cartridge #%d has been reset.\n", cartNum);
+                    } else {
+                        Serial.println("Error: Invalid cartridge number.");
+                    }
+                }
+            } else {
+                Serial.println("Authentication Failed. Please try again.");
+            }
+            Serial.println("-----------------------------");
+        }
+    }
+}
+
 // --- WEB SERVER HANDLERS ---
 
 void handleRoot() {
-    // Serve the main web page stored in PROGMEM
-    server.send(200, "text/html", HTML_CONTENT);
+    // Serve the main web page stored in PROGMEM using the optimized function
+    server.send_P(200, "text/html", HTML_CONTENT);
 }
 
 void handleGetData() {
@@ -253,11 +297,13 @@ void setup() {
     server.on("/reset", HTTP_POST, handleReset); // Use POST for commands
     server.begin();
     Serial.println("HTTP server started.");
+    Serial.println("Enter 'h' for hard reset or 'c=N' (e.g., c=1) to reset a cartridge.");
 }
 
 // --- LOOP ---
 void loop() {
     server.handleClient(); // Process incoming web requests
+    checkSerialCommands(); // Process incoming serial commands
     processTotalVolume();
     updateCartridgeLEDs();
     checkManualResetButtons();
@@ -268,3 +314,4 @@ void loop() {
         lastSerialPrintTime = millis();
     }
 }
+
