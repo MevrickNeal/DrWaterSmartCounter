@@ -3,8 +3,8 @@
 // Target Board: NodeMCU 1.0 (ESP-12E Module)
 // Goal: A fully functional offline controller with a password-protected
 // serial command interface for configuration and resets.
-// VERSION 2.8 UPDATE: Fixed serial command handler to work reliably with the
-//                     fast data stream from the Web Serial API.
+// VERSION 2.9 UPDATE: Reverted to a patient, prompt-based serial handler
+//                     to support the new interactive web UI.
 // =============================================================================
 
 // --- LIBRARIES ---
@@ -180,38 +180,34 @@ void sendSerialData() {
     }
 }
 
-// BUG FIX: Rewritten to be non-blocking and reliable for fast API calls.
+// Reverted to patient, prompt-based handler
 void handleSerialCommands() {
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
         command.trim();
         if (command.length() == 0) return;
 
-        // Data from Web Serial API arrives very fast. Give it a moment to buffer.
-        delay(50); 
+        Serial.println("Enter User ID:");
+        String user = "";
+        while (Serial.available() == 0) { delay(100); }
+        user = Serial.readStringUntil('\n');
+        user.trim();
 
-        // Check if we have enough data for user and pass
-        if (Serial.available() < 2) {
-            // This can happen with manual typing, so we prompt. The web UI will never see this.
-            Serial.println("AUTH_ERROR: Missing credentials. Please send User ID then Password.");
-            while(Serial.available() > 0) Serial.read(); // Clear buffer
-            return;
-        }
-        
-        String user = Serial.readStringUntil('\n'); user.trim();
-        String pass = Serial.readStringUntil('\n'); pass.trim();
+        Serial.println("Enter Password:");
+        String pass = "";
+        while (Serial.available() == 0) { delay(100); }
+        pass = Serial.readStringUntil('\n');
+        pass.trim();
 
         if (user != adminUser || pass != adminPass) {
             Serial.println("AUTH_ERROR: Invalid credentials.");
             return;
         }
         
-        // At this point, we are authenticated.
-        
         if (command == "h") {
             EEPROM.put(ADDR_MAGIC_NUM, 0UL);
             EEPROM.commit();
-            Serial.println("SUCCESS: Hard Reset complete. Please reboot the device.");
+            Serial.println("SUCCESS: Hard Reset complete. Please reboot.");
             delay(1000);
             ESP.restart();
         } else if (command.startsWith("c=") && command.indexOf("=") == 1) {
@@ -219,7 +215,7 @@ void handleSerialCommands() {
             if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES) {
                 cartridgeResetAt[cartIndex] = (unsigned long)(totalSystemVolume * PULSES_PER_LITER);
                 saveDataToEEPROM();
-                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " has been reset.");
+                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " reset.");
             } else {
                 Serial.println("ERROR: Invalid cartridge number.");
             }
@@ -268,3 +264,4 @@ void loop() {
     sendSerialData();
     handleSerialCommands();
 }
+
