@@ -48,6 +48,12 @@
         .header h1 svg {
             color: var(--primary-color);
         }
+        .header #version-tag {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #999;
+            margin-left: 1rem;
+        }
         .connection-area {
             display: flex;
             align-items: center;
@@ -136,16 +142,10 @@
             border-top: 1px solid var(--border-color);
             padding-top: 1rem;
             display: flex;
-            flex-direction: column;
+            justify-content: space-around;
             gap: 0.75rem;
         }
-        .cartridge-controls .control-group {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .cartridge-controls button, .cartridge-controls input {
+        .cartridge-controls button {
             padding: 0.5rem;
             border: 1px solid var(--border-color);
             border-radius: 8px;
@@ -153,14 +153,8 @@
             font-weight: 500;
             background-color: #e5e5ea;
             box-sizing: border-box;
-        }
-        .cartridge-controls button {
             cursor: pointer;
             flex-shrink: 0;
-        }
-        .cartridge-controls input {
-            width: 100%;
-            text-align: center;
         }
         #hard-reset-btn {
             padding: 0.75rem 1rem;
@@ -186,8 +180,8 @@
         .form-group input { width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid var(--border-color); background-color: rgba(255,255,255,0.8); box-sizing: border-box; }
         .modal-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
         .modal-buttons button { padding: 0.75rem 1rem; border: none; border-radius: 10px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
-        #cancel-login { background-color: #e5e5ea;}
-        #submit-login { background-color: var(--primary-color); color: white; }
+        .modal-buttons .cancel-btn { background-color: #e5e5ea;}
+        .modal-buttons .submit-btn { background-color: var(--primary-color); color: white; }
 
         footer {
             margin-top: 2rem;
@@ -208,6 +202,7 @@
             <h1>
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
                 Dr. Water Serial Monitor
+                <span id="version-tag">v3.0 - Definitive Fix</span>
             </h1>
             <div class="connection-area">
                 <div id="status-dot" class="status-dot"></div>
@@ -258,8 +253,23 @@
                 <input type="password" id="password" autocomplete="current-password">
             </div>
             <div class="modal-buttons">
-                <button id="cancel-login" onclick="hideLogin()">Cancel</button>
-                <button id="submit-login">Submit</button>
+                <button class="cancel-btn" onclick="hideLogin()">Cancel</button>
+                <button id="submit-login" class="submit-btn">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW Set Limit Modal -->
+    <div id="set-limit-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2 id="set-limit-title">Set New Limit</h2>
+            <div class="form-group">
+                <label for="new-limit-value">New Limit (Liters)</label>
+                <input type="number" id="new-limit-value">
+            </div>
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="hideSetLimitModal()">Cancel</button>
+                <button id="save-set-limit" class="submit-btn">Save</button>
             </div>
         </div>
     </div>
@@ -300,19 +310,11 @@
                         </div>
                         <div class="cartridge-controls">
                             <button onclick="showLogin('reset', ${i})">Reset Usage</button>
-                            <div class="control-group">
-                                <input type="number" id="cartridge-${i}-limit-input" placeholder="New Limit">
-                                <button onclick="showLogin('setLimit', ${i})">Set Limit</button>
-                            </div>
+                            <button onclick="showSetLimitModal(${i})">Change Limit</button>
                         </div>
                     </div>
                 `;
             }
-            // Add event listeners to all limit inputs to pause updates on focus
-            document.querySelectorAll('input[type="number"]').forEach(input => {
-                input.addEventListener('focus', stopDataFetching);
-                input.addEventListener('blur', startDataFetching);
-            });
         };
 
         connectBtn.addEventListener('click', async () => {
@@ -413,6 +415,7 @@
             console.log('Sent command:', command);
         }
         
+        // --- Redesigned Login and Command Flow ---
         function showLogin(actionType, cartridgeIndex = null) {
             if (actionType === 'hardReset' && !confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
                 return;
@@ -428,6 +431,26 @@
             document.getElementById('login-modal').classList.remove('visible');
         }
 
+        function showSetLimitModal(cartridgeIndex) {
+            stopDataFetching();
+            pendingAction.type = 'setLimit';
+            pendingAction.cartridge = cartridgeIndex;
+            const currentLimit = document.getElementById(`cartridge-${cartridgeIndex}-limit`).textContent.replace(' L', '');
+            document.getElementById('new-limit-value').value = currentLimit;
+            document.getElementById('set-limit-title').textContent = `Set New Limit for Cartridge #${cartridgeIndex}`;
+            document.getElementById('set-limit-modal').classList.add('visible');
+        }
+        
+        function hideSetLimitModal() {
+            document.getElementById('set-limit-modal').classList.remove('visible');
+            startDataFetching();
+        }
+
+        document.getElementById('save-set-limit').onclick = function() {
+            hideSetLimitModal();
+            showLogin(pendingAction.type, pendingAction.cartridge);
+        };
+
         document.getElementById('submit-login').onclick = async function() {
             const user = document.getElementById('user-id').value;
             const pass = document.getElementById('password').value;
@@ -439,7 +462,7 @@
             } else if (pendingAction.type === 'reset') {
                 command = `c=${pendingAction.cartridge}`;
             } else if (pendingAction.type === 'setLimit') {
-                const newLimit = document.getElementById(`cartridge-${pendingAction.cartridge}-limit-input`).value;
+                const newLimit = document.getElementById('new-limit-value').value;
                 if (!newLimit || parseInt(newLimit) <= 0) {
                     alert('Please enter a valid limit greater than 0.');
                     return; 
@@ -450,7 +473,7 @@
             if (command) {
                 await sendSerialCommand(command, user, pass);
                 await sleep(500); 
-                startDataFetching();
+                fetchData();
             }
         };
         
@@ -468,11 +491,6 @@
                 document.getElementById(`cartridge-${i}-remaining`).textContent = `Remaining: ${remaining.toFixed(2)} L`;
                 document.getElementById(`cartridge-${i}-limit`).textContent = `${limit.toFixed(0)} L`;
                 
-                const limitInput = document.getElementById(`cartridge-${i}-limit-input`);
-                if(limitInput) {
-                    limitInput.value = limit.toFixed(0);
-                }
-
                 const progress = document.getElementById(`cartridge-${i}-progress`);
                 progress.style.width = `${Math.min(percentage, 100)}%`;
                 progress.classList.remove('warning', 'danger');
@@ -483,3 +501,4 @@
     </script>
 </body>
 </html>
+
