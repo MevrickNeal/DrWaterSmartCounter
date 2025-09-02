@@ -125,10 +125,6 @@
             border-radius: 15px;
             transition: opacity 0.3s ease;
         }
-        .cartridge-item.is-frozen {
-            opacity: 0.5;
-            pointer-events: none;
-        }
         .cartridge-item h3 { margin-top: 0; font-weight: 600; font-size: 1.1rem; }
         .cartridge-stats { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; margin-bottom: 0.5rem; }
         .progress-bar { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
@@ -194,6 +190,13 @@
         #cancel-login { background-color: #e5e5ea;}
         #submit-login { background-color: var(--primary-color); color: white; }
 
+        .pause-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
         footer {
             margin-top: 2rem;
             padding-top: 1rem;
@@ -215,6 +218,10 @@
                 Dr. Water Serial Monitor
             </h1>
             <div class="connection-area">
+                <div class="pause-control">
+                    <input type="checkbox" id="pause-updates">
+                    <label for="pause-updates">Pause Updates</label>
+                </div>
                 <div id="status-dot" class="status-dot"></div>
                 <button id="connect-btn">Connect</button>
             </div>
@@ -276,6 +283,7 @@
     <script>
         const connectBtn = document.getElementById('connect-btn');
         const statusDot = document.getElementById('status-dot');
+        const pauseUpdatesCheckbox = document.getElementById('pause-updates');
         let port, reader, writer;
         let keepReading = true;
         
@@ -327,6 +335,7 @@
                 connectBtn.textContent = 'Connect';
                 statusDot.classList.remove('connected');
                 stopDataFetching();
+                pauseUpdatesCheckbox.checked = false;
             } else {
                 try {
                     port = await navigator.serial.requestPort();
@@ -339,9 +348,17 @@
                 } catch (error) { console.error('Error opening serial port:', error); }
             }
         });
+
+        pauseUpdatesCheckbox.addEventListener('change', () => {
+            if (pauseUpdatesCheckbox.checked) {
+                stopDataFetching();
+            } else {
+                startDataFetching();
+            }
+        });
         
         function startDataFetching() {
-            if (dataFetchInterval) return;
+            if (dataFetchInterval || !port) return;
             fetchData();
             dataFetchInterval = setInterval(fetchData, 2000);
         }
@@ -378,11 +395,9 @@
                                 }
                             } else if (line.trim().length > 0){
                                 console.log('MCU:', line); 
-                                // DEFINITIVE FIX: Unfreeze UI on confirmation from MCU
                                 if(line.includes("SUCCESS") || line.includes("ERROR") || line.includes("AUTH_ERROR")) {
-                                    document.querySelectorAll('.cartridge-item.is-frozen').forEach(el => el.classList.remove('is-frozen'));
-                                    fetchData(); // Force an immediate refresh
                                     alert(line);
+                                    fetchData(); // Force an immediate refresh on confirmation
                                 }
                             }
                         });
@@ -417,15 +432,9 @@
         }
         
         function showLogin(actionType, cartridgeIndex = null) {
-            if (actionType === 'hardReset') {
-                 if (!confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
-                    return;
-                }
-            } else if(actionType === 'setLimit' || actionType === 'reset') {
-                 // DEFINITIVE FIX: Freeze the specific card being edited
-                 document.getElementById(`cartridge-${cartridgeIndex}`).classList.add('is-frozen');
+            if (actionType === 'hardReset' && !confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
+                return;
             }
-
             pendingAction.type = actionType;
             pendingAction.cartridge = cartridgeIndex;
             
@@ -435,7 +444,6 @@
 
         function hideLogin() {
             document.getElementById('login-modal').classList.remove('visible');
-            // Don't restart fetching here, wait for confirmation from MCU
         }
 
         document.getElementById('submit-login').onclick = async function() {
@@ -452,7 +460,6 @@
                 const newLimit = document.getElementById(`cartridge-${pendingAction.cartridge}-limit-input`).value;
                 if (!newLimit || parseInt(newLimit) <= 0) {
                     alert('Please enter a valid limit greater than 0.');
-                    document.querySelectorAll('.is-frozen').forEach(el => el.classList.remove('is-frozen'));
                     return; 
                 }
                 command = `c${pendingAction.cartridge}=${newLimit}`;
@@ -492,4 +499,3 @@
     </script>
 </body>
 </html>
-
