@@ -380,7 +380,6 @@
                                 console.log('MCU:', line); 
                                 if(line.includes("SUCCESS") || line.includes("ERROR") || line.includes("AUTH_ERROR")) {
                                     alert(line);
-                                    fetchData(); 
                                 }
                             }
                         });
@@ -451,7 +450,7 @@
             if (command) {
                 await sendSerialCommand(command, user, pass);
                 await sleep(500); 
-                startDataFetching(); // Resume fetching after command is sent and processed
+                startDataFetching();
             }
         };
         
