@@ -429,7 +429,7 @@
             startDataFetching();
         }
 
-        document.getElementById('submit-login').onclick = function() {
+        document.getElementById('submit-login').onclick = async function() {
             const user = document.getElementById('user-id').value;
             const pass = document.getElementById('password').value;
 
@@ -442,17 +442,22 @@
                 const newLimit = document.getElementById(`cartridge-${pendingAction.cartridge}-limit-input`).value;
                 if (!newLimit || parseInt(newLimit) <= 0) {
                     alert('Please enter a valid limit greater than 0.');
-                    // Don't close the modal, allow user to correct mistake
+                    startDataFetching();
                     return; 
                 }
                 command = `c${pendingAction.cartridge}=${newLimit}`;
             }
 
-            if (command) {
-                sendSerialCommand(command, user, pass);
-            }
-            
+            // Important: Hide the modal *before* sending the command
+            // This prevents the user from clicking again while the command is processing
             hideLogin();
+
+            if (command) {
+                await sendSerialCommand(command, user, pass);
+                // After sending, wait a moment for the MCU to process, then force a refresh
+                await sleep(500); 
+                fetchData();
+            }
         };
         
         function updateUI(data) {
@@ -470,7 +475,7 @@
                 document.getElementById(`cartridge-${i}-limit`).textContent = `${limit.toFixed(0)} L`;
                 
                 const limitInput = document.getElementById(`cartridge-${i}-limit-input`);
-                // DEFINITIVE BUG FIX: Only update the input's value if the user is NOT focused on it.
+                // FINAL BUG FIX: Only update the input's value if the user is NOT focused on it.
                 if(limitInput && document.activeElement !== limitInput) {
                     limitInput.value = limit.toFixed(0);
                 }
@@ -485,3 +490,4 @@
     </script>
 </body>
 </html>
+
