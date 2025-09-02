@@ -3,7 +3,8 @@
 // Target Board: NodeMCU 1.0 (ESP-12E Module)
 // Goal: A fully functional offline controller with a password-protected
 // serial command interface for configuration and resets.
-// VERSION 2.7 UPDATE: Fixed serial command timeout bug for admin login.
+// VERSION 2.8 UPDATE: Fixed serial command handler to work reliably with the
+//                     fast data stream from the Web Serial API.
 // =============================================================================
 
 // --- LIBRARIES ---
@@ -75,7 +76,6 @@ void loadDataFromEEPROM() {
         for (int i = 0; i < NUM_CARTRIDGES; i++) {
             cartridgeResetAt[i] = 0;
         }
-        // Set new default lifespans for the 3-cartridge prototype
         cartridgeLifespans[0] = (unsigned long)(7000 * PULSES_PER_LITER);
         cartridgeLifespans[1] = (unsigned long)(10000 * PULSES_PER_LITER);
         cartridgeLifespans[2] = (unsigned long)(13000 * PULSES_PER_LITER);
@@ -180,41 +180,34 @@ void sendSerialData() {
     }
 }
 
-// BUG FIX: Rewritten to wait patiently for user input.
+// BUG FIX: Rewritten to be non-blocking and reliable for fast API calls.
 void handleSerialCommands() {
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
         command.trim();
-
         if (command.length() == 0) return;
 
-        Serial.println("Command received: [" + command + "]. Admin authentication required.");
-        
-        Serial.print("Enter User ID: ");
-        String user = "";
-        while (Serial.available() == 0) {
-          // Wait patiently for the user to start typing.
-          delay(100);
-        }
-        user = Serial.readStringUntil('\n');
-        user.trim();
+        // Data from Web Serial API arrives very fast. Give it a moment to buffer.
+        delay(50); 
 
-        Serial.print("Enter Password: ");
-        String pass = "";
-        while (Serial.available() == 0) {
-          // Wait patiently for the user to start typing.
-          delay(100);
+        // Check if we have enough data for user and pass
+        if (Serial.available() < 2) {
+            // This can happen with manual typing, so we prompt. The web UI will never see this.
+            Serial.println("AUTH_ERROR: Missing credentials. Please send User ID then Password.");
+            while(Serial.available() > 0) Serial.read(); // Clear buffer
+            return;
         }
-        pass = Serial.readStringUntil('\n');
-        pass.trim();
+        
+        String user = Serial.readStringUntil('\n'); user.trim();
+        String pass = Serial.readStringUntil('\n'); pass.trim();
 
         if (user != adminUser || pass != adminPass) {
             Serial.println("AUTH_ERROR: Invalid credentials.");
             return;
         }
-
-        Serial.println("Authentication successful.");
-
+        
+        // At this point, we are authenticated.
+        
         if (command == "h") {
             EEPROM.put(ADDR_MAGIC_NUM, 0UL);
             EEPROM.commit();
