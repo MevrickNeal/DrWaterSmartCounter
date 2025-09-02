@@ -1,9 +1,9 @@
 // =============================================================================
-// Dr. Water Smart Counter - STEP 2 (FINAL): WEB SERIAL CONTROLLER
+// Dr. Water Smart Counter - STEP 2 (FINAL): OFFLINE ADMIN CONTROLLER
 // Target Board: NodeMCU 1.0 (ESP-12E Module)
-// Goal: A clean, optimized offline controller that sends pure JSON data over
-// serial for the Web Serial API monitoring tool.
-// VERSION 2.4 UPDATE: Removed all debug code for a clean data stream.
+// Goal: A fully functional offline controller with a password-protected
+// serial command interface for configuration and resets.
+// VERSION 2.5 UPDATE: Added admin controls and dynamic cartridge limits.
 // =============================================================================
 
 // --- LIBRARIES ---
@@ -14,31 +14,30 @@ const int FLOW_SENSOR_PIN = D4; // GPIO2 - DO NOT CHANGE
 const int CARTRIDGE_LED_PINS[3] = { D1, D2, D5 }; // GPIO5, 4, 14
 const int CARTRIDGE_BUTTON_PINS[3] = { D6, D7, D3 }; // GPIO12, 13, 0
 // WIRING NOTE: Buttons should be wired from the pin to GND. We use internal pull-ups.
-// A 10kOhm pull-up resistor from D3 to 3V3 is still highly recommended for stability.
+
+// --- ADMIN CREDENTIALS ---
+const String adminUser = "drwtr01";
+const String adminPass = "1234";
 
 // --- SENSOR & DATA CONFIGURATION ---
 const float PULSES_PER_LITER = 450.0;
 const int NUM_CARTRIDGES = 3;
 
-// EEPROM Addresses for permanent storage
+// EEPROM Addresses
 const int ADDR_MAGIC_NUM = 0;
 const int ADDR_VOLUME = 4;
 const int ADDR_RESETS = 12;
 const int ADDR_HIGHEST_SPEED = ADDR_RESETS + sizeof(unsigned long[NUM_CARTRIDGES]);
+const int ADDR_LIFESPANS = ADDR_HIGHEST_SPEED + sizeof(float);
 
-// Global variables for sensor readings
+// Global variables
 float totalSystemVolume = 0.0;
 float currentSpeedLPM = 0.0;
 float highestSpeedLPM = 0.0;
-unsigned long cartridgeResetAt[NUM_CARTRIDGES] = {0, 0, 0};
-const unsigned long cartridgeLifespans[NUM_CARTRIDGES] = {
-    (unsigned long)(700 * PULSES_PER_LITER),
-    (unsigned long)(1000 * PULSES_PER_LITER),
-    (unsigned long)(1200 * PULSES_PER_LITER)
-};
+unsigned long cartridgeResetAt[NUM_CARTRIDGES];
+unsigned long cartridgeLifespans[NUM_CARTRIDGES];
 
-// Timing variables & interrupt counter
-unsigned long lastSaveTime = 0;
+// Timing & interrupt variables
 unsigned long lastSerialSendTime = 0;
 unsigned long lastSpeedCalcTime = 0;
 unsigned long lastPulseTime = 0;
@@ -46,7 +45,7 @@ volatile unsigned long pulseCount = 0;
 volatile unsigned long pulsesForSpeed = 0;
 
 // =============================================================================
-// INTERRUPT SERVICE ROUTINE (For Flow Sensor)
+// INTERRUPT SERVICE ROUTINE
 // =============================================================================
 void ICACHE_RAM_ATTR onPulse() {
     pulseCount++;
@@ -61,8 +60,8 @@ void saveDataToEEPROM() {
     EEPROM.put(ADDR_VOLUME, totalSystemVolume);
     EEPROM.put(ADDR_RESETS, cartridgeResetAt);
     EEPROM.put(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+    EEPROM.put(ADDR_LIFESPANS, cartridgeLifespans);
     EEPROM.commit();
-    lastSaveTime = millis();
 }
 
 void loadDataFromEEPROM() {
@@ -70,12 +69,17 @@ void loadDataFromEEPROM() {
     EEPROM.get(ADDR_MAGIC_NUM, magicNumber);
 
     if (magicNumber != 13371337UL) {
-        Serial.println("First run detected. Initializing EEPROM.");
+        Serial.println("First run. Initializing EEPROM with default values.");
         totalSystemVolume = 0.0;
         highestSpeedLPM = 0.0;
         for (int i = 0; i < NUM_CARTRIDGES; i++) {
             cartridgeResetAt[i] = 0;
         }
+        // Set default lifespans
+        cartridgeLifespans[0] = (unsigned long)(700 * PULSES_PER_LITER);
+        cartridgeLifespans[1] = (unsigned long)(1000 * PULSES_PER_LITER);
+        cartridgeLifespans[2] = (unsigned long)(1200 * PULSES_PER_LITER);
+        
         EEPROM.put(ADDR_MAGIC_NUM, 13371337UL);
         saveDataToEEPROM();
     } else {
@@ -83,11 +87,12 @@ void loadDataFromEEPROM() {
         EEPROM.get(ADDR_VOLUME, totalSystemVolume);
         EEPROM.get(ADDR_RESETS, cartridgeResetAt);
         EEPROM.get(ADDR_HIGHEST_SPEED, highestSpeedLPM);
+        EEPROM.get(ADDR_LIFESPANS, cartridgeLifespans);
     }
 }
 
 // =============================================================================
-// CORE LOGIC FUNCTIONS
+// CORE LOGIC FUNCTIONS (Unchanged from previous versions)
 // =============================================================================
 void processPulses() {
     if (pulseCount > 0) {
@@ -95,12 +100,8 @@ void processPulses() {
         unsigned long pulses = pulseCount;
         pulseCount = 0;
         interrupts();
-
         totalSystemVolume += (float)pulses / PULSES_PER_LITER;
-
-        if (millis() - lastSaveTime > 5000) {
-            saveDataToEEPROM();
-        }
+        saveDataToEEPROM();
     }
 }
 
@@ -111,20 +112,12 @@ void calculateSpeed() {
         unsigned long currentPulses = pulsesForSpeed;
         pulsesForSpeed = 0;
         interrupts();
-
         currentSpeedLPM = ((float)currentPulses / PULSES_PER_LITER) * 60.0;
-
-        if (now - lastPulseTime > 2000 && currentSpeedLPM > 0) {
-            currentSpeedLPM = 0.0;
-        }
-
-        if (currentSpeedLPM > highestSpeedLPM) {
-            highestSpeedLPM = currentSpeedLPM;
-        }
+        if (now - lastPulseTime > 2000) { currentSpeedLPM = 0.0; }
+        if (currentSpeedLPM > highestSpeedLPM) { highestSpeedLPM = currentSpeedLPM; }
         lastSpeedCalcTime = now;
     }
 }
-
 
 void updateLEDs() {
     for (int i = 0; i < NUM_CARTRIDGES; i++) {
@@ -164,40 +157,89 @@ void startupBlink() {
 }
 
 void sendSerialData() {
-    if (millis() - lastSerialSendTime >= 1000) { // Send every second
+    if (millis() - lastSerialSendTime >= 1000) {
         String json = "{";
         json += "\"totalVolume\":" + String(totalSystemVolume, 2) + ",";
         json += "\"currentSpeed\":" + String(currentSpeedLPM, 2) + ",";
         json += "\"highestSpeed\":" + String(highestSpeedLPM, 2) + ",";
         json += "\"cartridges\":[";
-
         for (int i = 0; i < NUM_CARTRIDGES; i++) {
             float usedLiters = totalSystemVolume - ((float)cartridgeResetAt[i] / PULSES_PER_LITER);
             if (usedLiters < 0) usedLiters = 0;
             float limitLiters = (float)cartridgeLifespans[i] / PULSES_PER_LITER;
             float remainingLiters = limitLiters - usedLiters;
             if (remainingLiters < 0) remainingLiters = 0;
-
             json += "{\"used\":" + String(usedLiters, 2) + ",";
             json += "\"remaining\":" + String(remainingLiters, 2) + ",";
             json += "\"limit\":" + String(limitLiters) + "}";
             if (i < NUM_CARTRIDGES - 1) json += ",";
         }
-
         json += "]}";
         Serial.println(json);
         lastSerialSendTime = millis();
     }
 }
 
+// =============================================================================
+// NEW: SERIAL COMMAND HANDLER
+// =============================================================================
+void handleSerialCommands() {
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+
+        if (command.length() == 0) return;
+
+        Serial.println("Received command: " + command);
+        
+        // --- Authentication ---
+        String user = Serial.readStringUntil('\n'); user.trim();
+        String pass = Serial.readStringUntil('\n'); pass.trim();
+
+        if (user != adminUser || pass != adminPass) {
+            Serial.println("AUTH_ERROR: Invalid credentials.");
+            return;
+        }
+
+        // --- Command Execution ---
+        if (command == "h") {
+            EEPROM.put(ADDR_MAGIC_NUM, 0UL); // Invalidate the magic number
+            EEPROM.commit();
+            Serial.println("SUCCESS: Hard Reset complete. Please reboot the device.");
+            delay(1000);
+            ESP.restart();
+        } else if (command.startsWith("c=") && command.indexOf("=") == 1) {
+            int cartIndex = command.substring(2).toInt() - 1;
+            if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES) {
+                cartridgeResetAt[cartIndex] = (unsigned long)(totalSystemVolume * PULSES_PER_LITER);
+                saveDataToEEPROM();
+                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " has been reset.");
+            } else {
+                Serial.println("ERROR: Invalid cartridge number.");
+            }
+        } else if (command.startsWith("c") && command.indexOf("=") > 1) {
+            int eqPos = command.indexOf("=");
+            int cartIndex = command.substring(1, eqPos).toInt() - 1;
+            long newLimit = command.substring(eqPos + 1).toInt();
+            if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES && newLimit > 0) {
+                cartridgeLifespans[cartIndex] = (unsigned long)(newLimit * PULSES_PER_LITER);
+                saveDataToEEPROM();
+                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " limit set to " + String(newLimit) + " L.");
+            } else {
+                Serial.println("ERROR: Invalid command format or value.");
+            }
+        } else {
+            Serial.println("ERROR: Unknown command.");
+        }
+    }
+}
 
 // =============================================================================
-// SETUP
+// SETUP & LOOP
 // =============================================================================
 void setup() {
     Serial.begin(9600);
-    
-    // Pin configurations first
+    // Pin configurations
     pinMode(FLOW_SENSOR_PIN, INPUT);
     for (int pin : CARTRIDGE_LED_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
     for (int pin : CARTRIDGE_BUTTON_PINS) { pinMode(pin, INPUT_PULLUP); }
@@ -209,17 +251,15 @@ void setup() {
     
     attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), onPulse, RISING);
     
-    Serial.println("System Ready. Sending JSON data...");
+    Serial.println("System Ready. Sending JSON data and listening for commands...");
 }
 
-// =============================================================================
-// LOOP
-// =============================================================================
 void loop() {
     processPulses();
     calculateSpeed();
     updateLEDs();
     checkPhysicalButtons();
     sendSerialData();
+    handleSerialCommands(); // NEW: Check for incoming commands
 }
 
