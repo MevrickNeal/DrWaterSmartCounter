@@ -1,31 +1,19 @@
 // =============================================================================
-// Dr. Water Smart Counter - STEP 3 (FINAL): STANDALONE WEB SERVER
+// Dr. Water Smart Counter - STEP 2 (FINAL): OFFLINE ADMIN CONTROLLER
 // Target Board: NodeMCU 1.0 (ESP-12E Module)
-// Goal: A final, standalone product with a full-featured web interface.
-// VERSION 3.1 UPDATE: Fixed EEPROM memory map bug causing data corruption.
-//                     Updated default cartridge limits and re-added startup blink.
+// Goal: A fully functional offline controller with a password-protected
+// serial command interface for configuration and resets.
+// VERSION 2.7 UPDATE: Fixed serial command timeout bug for admin login.
 // =============================================================================
 
 // --- LIBRARIES ---
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <EEPROM.h>
 
-// This file contains the HTML, CSS, and JavaScript for the web interface.
-// It MUST be in a separate tab named "index.h" in your Arduino IDE.
-#include "index.h"
-
-// --- HARDWARE PIN CONFIGURATION (Final 7-Cartridge Direct Wiring) ---
-const int FLOW_SENSOR_PIN = D4; // GPIO2
-const int WIFI_LED_PIN = D0;    // GPIO16
-const int CARTRIDGE_LED_PINS[7] = { D1, D2, D5, D6, D7, RX, TX }; // GPIO5,4,14,12,13,3,1
-const int CARTRIDGE_BUTTON_PINS[7] = { D3, D8, S3, S2, S1, 10, 9 }; // GPIO0,15, S3(GPIO10), S2(GPIO9), S1, SDD3, SDD2
-// NOTE: Pins D3 and D8 require external pull-up/pull-down resistors for stable booting.
-
-// --- WI-FI & WEB SERVER CONFIGURATION ---
-const char* ssid = "DrWater_Monitor";
-const char* password = "drwater123";
-ESP8266WebServer server(80);
+// --- HARDWARE PIN CONFIGURATION (Stable 3-Cartridge Setup) ---
+const int FLOW_SENSOR_PIN = D4; // GPIO2 - DO NOT CHANGE
+const int CARTRIDGE_LED_PINS[3] = { D1, D2, D5 }; // GPIO5, 4, 14
+const int CARTRIDGE_BUTTON_PINS[3] = { D6, D7, D3 }; // GPIO12, 13, 0
+// WIRING NOTE: Buttons should be wired from the pin to GND. We use internal pull-ups.
 
 // --- ADMIN CREDENTIALS ---
 const String adminUser = "drwtr01";
@@ -33,9 +21,9 @@ const String adminPass = "1234";
 
 // --- SENSOR & DATA CONFIGURATION ---
 const float PULSES_PER_LITER = 450.0;
-const int NUM_CARTRIDGES = 7;
+const int NUM_CARTRIDGES = 3;
 
-// EEPROM Addresses - DYNAMICALLY CALCULATED FOR ROBUSTNESS
+// EEPROM Addresses - CORRECTED DYNAMIC MEMORY MAP
 const int ADDR_MAGIC_NUM = 0;
 const int ADDR_VOLUME = ADDR_MAGIC_NUM + sizeof(unsigned long);
 const int ADDR_RESETS = ADDR_VOLUME + sizeof(float);
@@ -50,6 +38,7 @@ unsigned long cartridgeResetAt[NUM_CARTRIDGES];
 unsigned long cartridgeLifespans[NUM_CARTRIDGES];
 
 // Timing & interrupt variables
+unsigned long lastSerialSendTime = 0;
 unsigned long lastSpeedCalcTime = 0;
 unsigned long lastPulseTime = 0;
 volatile unsigned long pulseCount = 0;
@@ -80,107 +69,27 @@ void loadDataFromEEPROM() {
     EEPROM.get(ADDR_MAGIC_NUM, magicNumber);
 
     if (magicNumber != 13371337UL) {
+        Serial.println("First run. Initializing EEPROM with default values.");
         totalSystemVolume = 0.0;
         highestSpeedLPM = 0.0;
         for (int i = 0; i < NUM_CARTRIDGES; i++) {
             cartridgeResetAt[i] = 0;
         }
-        // Set new primary default lifespans
+        // Set new default lifespans for the 3-cartridge prototype
         cartridgeLifespans[0] = (unsigned long)(7000 * PULSES_PER_LITER);
         cartridgeLifespans[1] = (unsigned long)(10000 * PULSES_PER_LITER);
         cartridgeLifespans[2] = (unsigned long)(13000 * PULSES_PER_LITER);
-        cartridgeLifespans[3] = (unsigned long)(3000 * PULSES_PER_LITER);
-        cartridgeLifespans[4] = (unsigned long)(6000 * PULSES_PER_LITER);
-        cartridgeLifespans[5] = (unsigned long)(8000 * PULSES_PER_LITER);
-        cartridgeLifespans[6] = (unsigned long)(15000 * PULSES_PER_LITER);
         
         EEPROM.put(ADDR_MAGIC_NUM, 13371337UL);
         saveDataToEEPROM();
     } else {
+        Serial.println("Loading data from EEPROM.");
         EEPROM.get(ADDR_VOLUME, totalSystemVolume);
         EEPROM.get(ADDR_RESETS, cartridgeResetAt);
         EEPROM.get(ADDR_HIGHEST_SPEED, highestSpeedLPM);
         EEPROM.get(ADDR_LIFESPANS, cartridgeLifespans);
     }
 }
-
-// =============================================================================
-// WEB SERVER HANDLERS
-// =============================================================================
-void handleRoot() {
-    server.send_P(200, "text/html", HTML_CONTENT);
-}
-
-void handleData() {
-    String json = "{";
-    json += "\"totalVolume\":" + String(totalSystemVolume, 2) + ",";
-    json += "\"currentSpeed\":" + String(currentSpeedLPM, 2) + ",";
-    json += "\"highestSpeed\":" + String(highestSpeedLPM, 2) + ",";
-    json += "\"cartridges\":[";
-    for (int i = 0; i < NUM_CARTRIDGES; i++) {
-        float usedLiters = totalSystemVolume - ((float)cartridgeResetAt[i] / PULSES_PER_LITER);
-        if (usedLiters < 0) usedLiters = 0;
-        float limitLiters = (float)cartridgeLifespans[i] / PULSES_PER_LITER;
-        float remainingLiters = limitLiters - usedLiters;
-        if (remainingLiters < 0) remainingLiters = 0;
-        json += "{\"used\":" + String(usedLiters, 2) + ",";
-        json += "\"remaining\":" + String(remainingLiters, 2) + ",";
-        json += "\"limit\":" + String(limitLiters) + "}";
-        if (i < NUM_CARTRIDGES - 1) json += ",";
-    }
-    json += "]}";
-    server.send(200, "application/json", json);
-}
-
-void handleReset() {
-    if (!server.hasArg("user") || !server.hasArg("pass") || server.arg("user") != adminUser || server.arg("pass") != adminPass) {
-        server.send(401, "text/plain", "Unauthorized");
-        return;
-    }
-    if (server.hasArg("cmd")) {
-        String cmd = server.arg("cmd");
-        if (cmd == "h") {
-            EEPROM.put(ADDR_MAGIC_NUM, 0UL);
-            EEPROM.commit();
-            server.send(200, "text/plain", "SUCCESS: Hard Reset complete. Device will now reboot.");
-            delay(1000);
-            ESP.restart();
-        } else if (cmd.startsWith("c=")) {
-            int cartIndex = cmd.substring(2).toInt() - 1;
-            if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES) {
-                cartridgeResetAt[cartIndex] = (unsigned long)(totalSystemVolume * PULSES_PER_LITER);
-                saveDataToEEPROM();
-                server.send(200, "text/plain", "SUCCESS: Cartridge " + String(cartIndex + 1) + " has been reset.");
-            } else {
-                 server.send(400, "text/plain", "ERROR: Invalid cartridge number.");
-            }
-        }
-    }
-}
-
-void handleSetLimits() {
-    if (!server.hasArg("user") || !server.hasArg("pass") || server.arg("user") != adminUser || server.arg("pass") != adminPass) {
-        server.send(401, "text/plain", "Unauthorized");
-        return;
-    }
-    bool success = true;
-    for (int i = 0; i < NUM_CARTRIDGES; i++) {
-        String argName = "limit" + String(i + 1);
-        if (server.hasArg(argName)) {
-            unsigned long newLimit = server.arg(argName).toInt();
-            if (newLimit > 0) {
-                cartridgeLifespans[i] = newLimit * PULSES_PER_LITER;
-            } else { success = false; }
-        } else { success = false; }
-    }
-    if (success) {
-        saveDataToEEPROM();
-        server.send(200, "text/plain", "SUCCESS: Cartridge limits updated.");
-    } else {
-        server.send(400, "text/plain", "ERROR: Invalid or missing limit data.");
-    }
-}
-
 
 // =============================================================================
 // CORE LOGIC FUNCTIONS
@@ -227,7 +136,6 @@ void updateLEDs() {
 
 void checkPhysicalButtons() {
     for (int i = 0; i < NUM_CARTRIDGES; i++) {
-        if (CARTRIDGE_BUTTON_PINS[i] == 255) continue; // Skip unassigned buttons
         if (digitalRead(CARTRIDGE_BUTTON_PINS[i]) == LOW) {
             delay(50);
             if (digitalRead(CARTRIDGE_BUTTON_PINS[i]) == LOW) {
@@ -241,10 +149,101 @@ void checkPhysicalButtons() {
 
 void startupBlink() {
     for (int j = 0; j < 2; j++) {
-        for (int i = 0; i < 7; i++) { digitalWrite(CARTRIDGE_LED_PINS[i], HIGH); }
+        for (int i = 0; i < NUM_CARTRIDGES; i++) { digitalWrite(CARTRIDGE_LED_PINS[i], HIGH); }
         delay(150);
-        for (int i = 0; i < 7; i++) { digitalWrite(CARTRIDGE_LED_PINS[i], LOW); }
+        for (int i = 0; i < NUM_CARTRIDGES; i++) { digitalWrite(CARTRIDGE_LED_PINS[i], LOW); }
         delay(150);
+    }
+}
+
+void sendSerialData() {
+    if (millis() - lastSerialSendTime >= 1000) {
+        String json = "{";
+        json += "\"totalVolume\":" + String(totalSystemVolume, 2) + ",";
+        json += "\"currentSpeed\":" + String(currentSpeedLPM, 2) + ",";
+        json += "\"highestSpeed\":" + String(highestSpeedLPM, 2) + ",";
+        json += "\"cartridges\":[";
+        for (int i = 0; i < NUM_CARTRIDGES; i++) {
+            float usedLiters = totalSystemVolume - ((float)cartridgeResetAt[i] / PULSES_PER_LITER);
+            if (usedLiters < 0) usedLiters = 0;
+            float limitLiters = (float)cartridgeLifespans[i] / PULSES_PER_LITER;
+            float remainingLiters = limitLiters - usedLiters;
+            if (remainingLiters < 0) remainingLiters = 0;
+            json += "{\"used\":" + String(usedLiters, 2) + ",";
+            json += "\"remaining\":" + String(remainingLiters, 2) + ",";
+            json += "\"limit\":" + String(limitLiters) + "}";
+            if (i < NUM_CARTRIDGES - 1) json += ",";
+        }
+        json += "]}";
+        Serial.println(json);
+        lastSerialSendTime = millis();
+    }
+}
+
+// BUG FIX: Rewritten to wait patiently for user input.
+void handleSerialCommands() {
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+
+        if (command.length() == 0) return;
+
+        Serial.println("Command received: [" + command + "]. Admin authentication required.");
+        
+        Serial.print("Enter User ID: ");
+        String user = "";
+        while (Serial.available() == 0) {
+          // Wait patiently for the user to start typing.
+          delay(100);
+        }
+        user = Serial.readStringUntil('\n');
+        user.trim();
+
+        Serial.print("Enter Password: ");
+        String pass = "";
+        while (Serial.available() == 0) {
+          // Wait patiently for the user to start typing.
+          delay(100);
+        }
+        pass = Serial.readStringUntil('\n');
+        pass.trim();
+
+        if (user != adminUser || pass != adminPass) {
+            Serial.println("AUTH_ERROR: Invalid credentials.");
+            return;
+        }
+
+        Serial.println("Authentication successful.");
+
+        if (command == "h") {
+            EEPROM.put(ADDR_MAGIC_NUM, 0UL);
+            EEPROM.commit();
+            Serial.println("SUCCESS: Hard Reset complete. Please reboot the device.");
+            delay(1000);
+            ESP.restart();
+        } else if (command.startsWith("c=") && command.indexOf("=") == 1) {
+            int cartIndex = command.substring(2).toInt() - 1;
+            if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES) {
+                cartridgeResetAt[cartIndex] = (unsigned long)(totalSystemVolume * PULSES_PER_LITER);
+                saveDataToEEPROM();
+                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " has been reset.");
+            } else {
+                Serial.println("ERROR: Invalid cartridge number.");
+            }
+        } else if (command.startsWith("c") && command.indexOf("=") > 1) {
+            int eqPos = command.indexOf("=");
+            int cartIndex = command.substring(1, eqPos).toInt() - 1;
+            long newLimit = command.substring(eqPos + 1).toInt();
+            if (cartIndex >= 0 && cartIndex < NUM_CARTRIDGES && newLimit > 0) {
+                cartridgeLifespans[cartIndex] = (unsigned long)(newLimit * PULSES_PER_LITER);
+                saveDataToEEPROM();
+                Serial.println("SUCCESS: Cartridge " + String(cartIndex + 1) + " limit set to " + String(newLimit) + " L.");
+            } else {
+                Serial.println("ERROR: Invalid command format or value.");
+            }
+        } else {
+            Serial.println("ERROR: Unknown command.");
+        }
     }
 }
 
@@ -252,34 +251,27 @@ void startupBlink() {
 // SETUP & LOOP
 // =============================================================================
 void setup() {
+    Serial.begin(9600);
     // Pin configurations
     pinMode(FLOW_SENSOR_PIN, INPUT);
     for (int pin : CARTRIDGE_LED_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
-    for (int pin : CARTRIDGE_BUTTON_PINS) { if(pin != 255) pinMode(pin, INPUT_PULLUP); }
-    pinMode(WIFI_LED_PIN, OUTPUT);
-    digitalWrite(WIFI_LED_PIN, LOW);
+    for (int pin : CARTRIDGE_BUTTON_PINS) { pinMode(pin, INPUT_PULLUP); }
 
     startupBlink();
-
+    
     EEPROM.begin(512);
     loadDataFromEEPROM();
     
     attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), onPulse, RISING);
     
-    WiFi.softAP(ssid, password);
-    digitalWrite(WIFI_LED_PIN, HIGH);
-
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/data", HTTP_GET, handleData);
-    server.on("/reset", HTTP_POST, handleReset);
-    server.on("/setlimits", HTTP_POST, handleSetLimits);
-    server.begin();
+    Serial.println("System Ready. Sending JSON data and listening for commands...");
 }
 
 void loop() {
-    server.handleClient();
     processPulses();
     calculateSpeed();
     updateLEDs();
     checkPhysicalButtons();
+    sendSerialData();
+    handleSerialCommands();
 }
