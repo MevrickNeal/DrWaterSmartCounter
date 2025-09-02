@@ -448,15 +448,12 @@
                 command = `c${pendingAction.cartridge}=${newLimit}`;
             }
 
-            // Important: Hide the modal *before* sending the command
-            // This prevents the user from clicking again while the command is processing
-            hideLogin();
+            hideLogin(); // Hide modal immediately for better UX
 
             if (command) {
                 await sendSerialCommand(command, user, pass);
-                // After sending, wait a moment for the MCU to process, then force a refresh
-                await sleep(500); 
-                fetchData();
+                await sleep(500); // Wait for MCU to process
+                fetchData(); // Force one immediate update to get the new value
             }
         };
         
@@ -475,7 +472,7 @@
                 document.getElementById(`cartridge-${i}-limit`).textContent = `${limit.toFixed(0)} L`;
                 
                 const limitInput = document.getElementById(`cartridge-${i}-limit-input`);
-                // FINAL BUG FIX: Only update the input's value if the user is NOT focused on it.
+                // DEFINITIVE BUG FIX: Only update the input's value if the user is NOT focused on it.
                 if(limitInput && document.activeElement !== limitInput) {
                     limitInput.value = limit.toFixed(0);
                 }
@@ -490,4 +487,3 @@
     </script>
 </body>
 </html>
-
