@@ -187,7 +187,7 @@
         .modal-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
         .modal-buttons button { padding: 0.75rem 1rem; border: none; border-radius: 10px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
         #cancel-login { background-color: #e5e5ea;}
-        #submit-login { background-color: var(--primary-color); color: white; }
+        #submit-login, #next-login { background-color: var(--primary-color); color: white; }
 
         footer {
             margin-top: 2rem;
@@ -249,17 +249,22 @@
     <div id="login-modal" class="modal-overlay">
         <div class="modal-content">
             <h2>Admin Authentication</h2>
-            <div class="form-group">
-                <label for="user-id">User ID</label>
-                <input type="text" id="user-id" value="drwtr01">
+            <div id="user-step">
+                <div class="form-group">
+                    <label for="user-id">User ID</label>
+                    <input type="text" id="user-id" value="drwtr01">
+                </div>
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" autocomplete="current-password">
+            <div id="password-step" style="display: none;">
+                 <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" autocomplete="current-password">
+                </div>
             </div>
             <div class="modal-buttons">
                 <button id="cancel-login" onclick="hideLogin()">Cancel</button>
-                <button id="submit-login">Submit</button>
+                <button id="next-login" onclick="handleNextLogin()">Next</button>
+                <button id="submit-login" style="display: none;">Submit</button>
             </div>
         </div>
     </div>
@@ -278,6 +283,7 @@
             type: null,
             cartridge: null
         };
+        let storedUser = '';
 
         window.onload = function() {
             const container = document.getElementById('cartridges-container');
@@ -394,8 +400,23 @@
             pendingAction.type = actionType;
             pendingAction.cartridge = cartridgeIndex;
             
+            // Reset modal to first step
+            document.getElementById('user-step').style.display = 'block';
+            document.getElementById('password-step').style.display = 'none';
+            document.getElementById('next-login').style.display = 'inline-block';
+            document.getElementById('submit-login').style.display = 'none';
             document.getElementById('password').value = '';
+
             document.getElementById('login-modal').classList.add('visible');
+        }
+
+        function handleNextLogin() {
+            storedUser = document.getElementById('user-id').value;
+            document.getElementById('user-step').style.display = 'none';
+            document.getElementById('password-step').style.display = 'block';
+            document.getElementById('next-login').style.display = 'none';
+            document.getElementById('submit-login').style.display = 'inline-block';
+            document.getElementById('password').focus();
         }
 
         function hideLogin() {
@@ -403,7 +424,6 @@
         }
 
         document.getElementById('submit-login').onclick = function() {
-            const user = document.getElementById('user-id').value;
             const pass = document.getElementById('password').value;
             hideLogin();
 
@@ -422,7 +442,7 @@
             }
 
             if (command) {
-                sendSerialCommand(command, user, pass);
+                sendSerialCommand(command, storedUser, pass);
             }
         };
         
@@ -432,11 +452,9 @@
             document.getElementById('highest-flow').textContent = data.highestSpeed.toFixed(2);
             data.cartridges.forEach((cart, index) => {
                 const i = index + 1;
-                // BUG FIX: Ensure the limit is treated as a number before calculations
                 const limit = parseFloat(cart.limit); 
                 const used = parseFloat(cart.used);
                 const remaining = parseFloat(cart.remaining);
-
                 const percentage = limit > 0 ? (used / limit) * 100 : 0;
                 document.getElementById(`cartridge-${i}-used`).textContent = `Used: ${used.toFixed(2)} L`;
                 document.getElementById(`cartridge-${i}-remaining`).textContent = `Remaining: ${remaining.toFixed(2)} L`;
@@ -455,3 +473,4 @@
     </script>
 </body>
 </html>
+
