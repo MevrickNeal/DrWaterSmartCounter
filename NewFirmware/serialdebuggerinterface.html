@@ -1,1 +1,458 @@
-kgkg
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dr. Water - Serial Monitor</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: rgba(255, 255, 255, 0.7);
+            --text-color: #333;
+            --primary-color: #007aff;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+            --border-color: rgba(0, 0, 0, 0.08);
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --danger-color: #ff3b30;
+            --warning-color: #ff9500;
+            --success-color: #34c759;
+        }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--text-color);
+        }
+        .main-container {
+            width: 100%;
+            max-width: 900px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        .header h1 {
+            display: flex;
+            align-items: center;
+            font-size: 1.75rem;
+            font-weight: 600;
+            gap: 0.75rem;
+            margin: 0;
+        }
+        .header h1 svg {
+            color: var(--primary-color);
+        }
+        .connection-area {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--danger-color);
+            transition: background-color 0.3s;
+        }
+        .status-dot.connected {
+            background-color: var(--success-color);
+        }
+        #connect-btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            background-color: var(--primary-color);
+            color: white;
+            transition: background-color 0.2s ease;
+        }
+        #connect-btn:hover {
+            background-color: #005bb5;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 32px 0 var(--shadow-color);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+        }
+        .metric-item {
+            text-align: center;
+        }
+        .metric-item .value {
+            font-size: 2.25rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .metric-item .unit {
+            font-size: 1rem;
+            color: #888;
+        }
+        .metric-item .label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+        .controls-card h2, .cartridges-card h2 {
+            margin-top: 0;
+            font-weight: 600;
+        }
+        .cartridges-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        .cartridge-item {
+            background-color: rgba(255, 255, 255, 0.8);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 15px;
+        }
+        .cartridge-item h3 { margin-top: 0; font-weight: 600; font-size: 1.1rem; }
+        .cartridge-stats { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .progress-bar { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+        .progress-bar-inner { height: 100%; background-color: var(--primary-color); width: 0%; transition: width 0.5s ease, background-color 0.5s ease; border-radius: 4px; }
+        .progress-bar-inner.warning { background-color: var(--warning-color); }
+        .progress-bar-inner.danger { background-color: var(--danger-color); }
+
+        .cartridge-controls {
+            margin-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .cartridge-controls .control-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .cartridge-controls button, .cartridge-controls input {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            background-color: #e5e5ea;
+            box-sizing: border-box;
+        }
+        .cartridge-controls button {
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .cartridge-controls input {
+            width: 100%;
+            text-align: center;
+        }
+        #hard-reset-btn {
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            background-color: var(--danger-color);
+            color: white;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; z-index: 1000; }
+        .modal-overlay.visible { opacity: 1; visibility: visible; }
+        .modal-content { background-color: var(--card-bg); padding: 2rem; border-radius: 20px; box-shadow: 0 8px 32px 0 var(--shadow-color); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--border-color); width: 90%; max-width: 400px; transform: scale(0.9); transition: transform 0.3s; }
+        .modal-overlay.visible .modal-content { transform: scale(1); }
+        .modal-content h2 { margin-top: 0; text-align: center; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .form-group input { width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid var(--border-color); background-color: rgba(255,255,255,0.8); box-sizing: border-box; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+        .modal-buttons button { padding: 0.75rem 1rem; border: none; border-radius: 10px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
+        #cancel-login { background-color: #e5e5ea;}
+        #submit-login { background-color: var(--primary-color); color: white; }
+
+        /* NEW: Footer styles */
+        footer {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            font-size: 0.9rem;
+            color: #888;
+            width: 100%;
+            max-width: 900px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <header class="header">
+            <h1>
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+                Dr. Water Serial Monitor
+            </h1>
+            <div class="connection-area">
+                <div id="status-dot" class="status-dot"></div>
+                <button id="connect-btn">Connect</button>
+            </div>
+        </header>
+
+        <section class="card">
+             <div class="metrics-grid">
+                <div class="metric-item">
+                    <span id="total-volume" class="value">0.00</span><span class="unit"> L</span>
+                    <div class="label">Total Volume</div>
+                </div>
+                <div class="metric-item">
+                    <span id="current-flow" class="value">0.00</span><span class="unit"> L/min</span>
+                    <div class="label">Current Flow</div>
+                </div>
+                <div class="metric-item">
+                    <span id="highest-flow" class="value">0.00</span><span class="unit"> L/min</span>
+                    <div class="label">Highest Flow</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card cartridges-card">
+            <h2>Cartridge Status</h2>
+            <div class="cartridges-grid" id="cartridges-container">
+                <!-- Cartridge items will be generated by JavaScript -->
+            </div>
+        </section>
+
+        <section class="card controls-card">
+            <h2>System Controls</h2>
+            <button id="hard-reset-btn" onclick="showLogin('hardReset')">Hard Reset System</button>
+        </section>
+    </div>
+
+    <!-- Admin Login Modal -->
+    <div id="login-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2>Admin Authentication</h2>
+            <div class="form-group">
+                <label for="user-id">User ID</label>
+                <input type="text" id="user-id" value="drwtr01">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" autocomplete="current-password">
+            </div>
+            <div class="modal-buttons">
+                <button id="cancel-login" onclick="hideLogin()">Cancel</button>
+                <button id="submit-login">Submit</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- NEW: Footer section -->
+    <footer>
+        <p>Developed for Dr. Water by Lian Mollick</p>
+    </footer>
+
+    <script>
+        const connectBtn = document.getElementById('connect-btn');
+        const statusDot = document.getElementById('status-dot');
+        let port, reader, writer;
+        let keepReading = true;
+        
+        let pendingAction = {
+            type: null,
+            cartridge: null
+        };
+
+        window.onload = function() {
+            const container = document.getElementById('cartridges-container');
+            const numCartridges = 3; 
+            for (let i = 1; i <= numCartridges; i++) {
+                container.innerHTML += `
+                    <div class="cartridge-item" id="cartridge-${i}">
+                        <h3>Cartridge #${i}</h3>
+                        <div class="cartridge-stats">
+                            <span id="cartridge-${i}-used">Used: -- L</span>
+                            <span id="cartridge-${i}-remaining">Remaining: -- L</span>
+                        </div>
+                        <div class="cartridge-stats">
+                            <span>Limit: <span id="cartridge-${i}-limit">-- L</span></span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-bar-inner" id="cartridge-${i}-progress"></div>
+                        </div>
+                        <div class="cartridge-controls">
+                            <button onclick="showLogin('reset', ${i})">Reset Usage</button>
+                            <div class="control-group">
+                                <input type="number" id="cartridge-${i}-limit-input" placeholder="New Limit">
+                                <button onclick="showLogin('setLimit', ${i})">Set Limit</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        };
+
+        connectBtn.addEventListener('click', async () => {
+            if (port) {
+                keepReading = false;
+                if (reader) await reader.cancel();
+                if (writer) try { await writer.close(); } catch(e) {}
+                await port.close();
+                port = null;
+                writer = null;
+                reader = null;
+                connectBtn.textContent = 'Connect';
+                statusDot.classList.remove('connected');
+            } else {
+                try {
+                    port = await navigator.serial.requestPort();
+                    await port.open({ baudRate: 9600 });
+                    connectBtn.textContent = 'Disconnect';
+                    statusDot.classList.add('connected');
+                    keepReading = true;
+                    readUntilClosed();
+                } catch (error) { console.error('Error opening serial port:', error); }
+            }
+        });
+
+        async function readUntilClosed() {
+            while (port && port.readable && keepReading) {
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable, { preventClose: true });
+                reader = textDecoder.readable.getReader();
+
+                try {
+                    let lineBuffer = '';
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) {
+                            reader.releaseLock();
+                            break;
+                        }
+                        lineBuffer += value;
+                        const lines = lineBuffer.split('\r\n');
+                        lineBuffer = lines.pop(); 
+
+                        lines.forEach(line => {
+                            if (line.trim().startsWith('{')) {
+                                try {
+                                    updateUI(JSON.parse(line));
+                                } catch (e) {
+                                    console.warn("Could not parse JSON:", line);
+                                }
+                            } else if (line.trim().length > 0){
+                                console.log('MCU:', line); 
+                                if(line.includes("SUCCESS") || line.includes("ERROR") || line.includes("AUTH_ERROR")) {
+                                    alert(line);
+                                }
+                            }
+                        });
+                    }
+                } catch (error) { 
+                    console.error('Read error:', error);
+                    break;
+                }
+            }
+        }
+
+        async function sendSerialCommand(command, user, pass) {
+            if (!port || !port.writable) {
+                alert('Not connected to the device.');
+                return;
+            }
+            const textEncoder = new TextEncoder();
+            writer = port.writable.getWriter();
+            await writer.write(textEncoder.encode(command + '\n'));
+            await writer.write(textEncoder.encode(user + '\n'));
+            await writer.write(textEncoder.encode(pass + '\n'));
+            writer.releaseLock();
+            console.log('Sent command:', command);
+        }
+        
+        function showLogin(actionType, cartridgeIndex = null) {
+            if (actionType === 'hardReset') {
+                 if (!confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
+                    return;
+                }
+            }
+            pendingAction.type = actionType;
+            pendingAction.cartridge = cartridgeIndex;
+            
+            document.getElementById('password').value = '';
+            document.getElementById('login-modal').classList.add('visible');
+        }
+
+        function hideLogin() {
+            document.getElementById('login-modal').classList.remove('visible');
+        }
+
+        document.getElementById('submit-login').onclick = function() {
+            const user = document.getElementById('user-id').value;
+            const pass = document.getElementById('password').value;
+            hideLogin();
+
+            let command = '';
+            if (pendingAction.type === 'hardReset') {
+                command = 'h';
+            } else if (pendingAction.type === 'reset') {
+                command = `c=${pendingAction.cartridge}`;
+            } else if (pendingAction.type === 'setLimit') {
+                const newLimit = document.getElementById(`cartridge-${pendingAction.cartridge}-limit-input`).value;
+                if (!newLimit || parseInt(newLimit) <= 0) {
+                    alert('Please enter a valid limit greater than 0.');
+                    return;
+                }
+                command = `c${pendingAction.cartridge}=${newLimit}`;
+            }
+
+            if (command) {
+                sendSerialCommand(command, user, pass);
+            }
+        };
+        
+        function updateUI(data) {
+            document.getElementById('total-volume').textContent = data.totalVolume.toFixed(2);
+            document.getElementById('current-flow').textContent = data.currentSpeed.toFixed(2);
+            document.getElementById('highest-flow').textContent = data.highestSpeed.toFixed(2);
+            data.cartridges.forEach((cart, index) => {
+                const i = index + 1;
+                const limit = cart.limit;
+                const used = cart.used;
+                const remaining = cart.remaining;
+                const percentage = limit > 0 ? (used / limit) * 100 : 0;
+                document.getElementById(`cartridge-${i}-used`).textContent = `Used: ${used.toFixed(2)} L`;
+                document.getElementById(`cartridge-${i}-remaining`).textContent = `Remaining: ${remaining.toFixed(2)} L`;
+                document.getElementById(`cartridge-${i}-limit`).textContent = `${limit.toFixed(0)} L`;
+                const limitInput = document.getElementById(`cartridge-${i}-limit-input`);
+                if(limitInput && !limitInput.matches(':focus')) {
+                    limitInput.value = limit.toFixed(0);
+                }
+                const progress = document.getElementById(`cartridge-${i}-progress`);
+                progress.style.width = `${Math.min(percentage, 100)}%`;
+                progress.classList.remove('warning', 'danger');
+                if (percentage >= 100) { progress.classList.add('danger'); } 
+                else if (percentage >= 90) { progress.classList.add('warning'); }
+            });
+        }
+    </script>
+</body>
+</html>
+
