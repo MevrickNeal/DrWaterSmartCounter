@@ -202,7 +202,7 @@
             <h1>
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
                 Dr. Water Serial Monitor
-                <span id="version-tag">v3.1 - Redesigned Controls</span>
+                <span id="version-tag">v3.2 - UI Freeze Fix</span>
             </h1>
             <div class="connection-area">
                 <div id="status-dot" class="status-dot"></div>
@@ -244,7 +244,6 @@
     <div id="login-modal" class="modal-overlay">
         <div class="modal-content">
             <h2 id="login-title">Admin Authentication</h2>
-            <!-- This new group will be shown/hidden dynamically -->
             <div id="limit-input-group" class="form-group" style="display: none;">
                 <label for="new-limit-value">New Limit (Liters)</label>
                 <input type="number" id="new-limit-value">
@@ -421,8 +420,7 @@
         document.getElementById('submit-login').onclick = async function() {
             const user = document.getElementById('user-id').value;
             const pass = document.getElementById('password').value;
-            hideLogin();
-
+            
             let command = '';
             if (pendingAction.type === 'hardReset') {
                 command = 'h';
@@ -437,10 +435,12 @@
                 command = `c${pendingAction.cartridge}=${newLimit}`;
             }
 
+            hideLogin(); // Hide modal immediately
+
             if (command) {
                 await sendSerialCommand(command, user, pass);
                 await sleep(500); 
-                fetchData();
+                fetchData(); // Force one immediate update
             }
         };
         
