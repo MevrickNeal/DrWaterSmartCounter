@@ -189,7 +189,6 @@
         #cancel-login { background-color: #e5e5ea;}
         #submit-login { background-color: var(--primary-color); color: white; }
 
-        /* NEW: Footer styles */
         footer {
             margin-top: 2rem;
             padding-top: 1rem;
@@ -265,7 +264,6 @@
         </div>
     </div>
     
-    <!-- NEW: Footer section -->
     <footer>
         <p>Developed for Dr. Water by Lian Mollick</p>
     </footer>
@@ -434,9 +432,11 @@
             document.getElementById('highest-flow').textContent = data.highestSpeed.toFixed(2);
             data.cartridges.forEach((cart, index) => {
                 const i = index + 1;
-                const limit = cart.limit;
-                const used = cart.used;
-                const remaining = cart.remaining;
+                // BUG FIX: Ensure the limit is treated as a number before calculations
+                const limit = parseFloat(cart.limit); 
+                const used = parseFloat(cart.used);
+                const remaining = parseFloat(cart.remaining);
+
                 const percentage = limit > 0 ? (used / limit) * 100 : 0;
                 document.getElementById(`cartridge-${i}-used`).textContent = `Used: ${used.toFixed(2)} L`;
                 document.getElementById(`cartridge-${i}-remaining`).textContent = `Remaining: ${remaining.toFixed(2)} L`;
@@ -455,4 +455,3 @@
     </script>
 </body>
 </html>
-
