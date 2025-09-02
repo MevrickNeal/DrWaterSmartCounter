@@ -202,7 +202,7 @@
             <h1>
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
                 Dr. Water Serial Monitor
-                <span id="version-tag">v3.3 - Two-Step Modal Fix</span>
+                <span id="version-tag">v3.4 - Final Fix</span>
             </h1>
             <div class="connection-area">
                 <div id="status-dot" class="status-dot"></div>
@@ -240,36 +240,14 @@
         </section>
     </div>
 
-    <!-- Admin Login Modal -->
-    <div id="login-modal" class="modal-overlay">
+    <!-- Universal Modal -->
+    <div id="modal" class="modal-overlay">
         <div class="modal-content">
-            <h2>Admin Authentication</h2>
-            <div class="form-group">
-                <label for="user-id">User ID</label>
-                <input type="text" id="user-id" value="drwtr01">
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" autocomplete="current-password">
-            </div>
+            <h2 id="modal-title"></h2>
+            <div id="modal-body"></div>
             <div class="modal-buttons">
-                <button class="cancel-btn" onclick="hideLogin()">Cancel</button>
-                <button id="submit-login" class="submit-btn">Submit</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- NEW Set Limit Modal -->
-    <div id="set-limit-modal" class="modal-overlay">
-        <div class="modal-content">
-            <h2 id="set-limit-title">Set New Limit</h2>
-            <div class="form-group">
-                <label for="new-limit-value">New Limit (Liters)</label>
-                <input type="number" id="new-limit-value">
-            </div>
-            <div class="modal-buttons">
-                <button class="cancel-btn" onclick="hideSetLimitModal()">Cancel</button>
-                <button id="save-set-limit" class="submit-btn">Save & Authenticate</button>
+                <button class="cancel-btn" onclick="hideModal()">Cancel</button>
+                <button id="modal-action-btn" class="submit-btn"></button>
             </div>
         </div>
     </div>
@@ -287,10 +265,13 @@
         let pendingAction = {
             type: null,
             cartridge: null,
-            value: null // To store the new limit value between modals
+            value: null,
+            user: null,
+            pass: null
         };
 
         let dataFetchInterval = null;
+        let modalState = 'closed';
 
         window.onload = function() {
             const container = document.getElementById('cartridges-container');
@@ -310,12 +291,13 @@
                             <div class="progress-bar-inner" id="cartridge-${i}-progress"></div>
                         </div>
                         <div class="cartridge-controls">
-                            <button onclick="showLogin('reset', ${i})">Reset Usage</button>
-                            <button onclick="showSetLimitModal(${i})">Change Limit</button>
+                            <button onclick="handleAction('reset', ${i})">Reset Usage</button>
+                            <button onclick="handleAction('setLimit', ${i})">Change Limit</button>
                         </div>
                     </div>
                 `;
             }
+            document.getElementById('hard-reset-btn').onclick = () => handleAction('hardReset');
         };
 
         connectBtn.addEventListener('click', async () => {
@@ -398,71 +380,104 @@
             console.log('Sent command:', command);
         }
         
-        // --- Redesigned Login and Command Flow ---
-        function showLogin(actionType, cartridgeIndex = null) {
+        // --- Redesigned Multi-Step Modal Flow ---
+        function handleAction(actionType, cartridgeIndex = null) {
             stopDataFetching();
-            if (actionType === 'hardReset' && !confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
-                startDataFetching(); return;
-            }
             pendingAction.type = actionType;
             pendingAction.cartridge = cartridgeIndex;
-            
-            document.getElementById('password').value = '';
-            document.getElementById('login-modal').classList.add('visible');
+
+            if (actionType === 'hardReset') {
+                if (!confirm('Are you sure? This will erase all data.')) {
+                    startDataFetching(); return;
+                }
+                modalState = 'user'; // Skip straight to user auth
+                showModal();
+            } else if (actionType === 'reset') {
+                modalState = 'user'; // Skip straight to user auth
+                showModal();
+            } else if (actionType === 'setLimit') {
+                modalState = 'limit'; // Start with the limit input
+                showModal();
+            }
         }
 
-        function hideLogin() {
-            document.getElementById('login-modal').classList.remove('visible');
-            startDataFetching();
+        function showModal() {
+            const modal = document.getElementById('modal');
+            const title = document.getElementById('modal-title');
+            const body = document.getElementById('modal-body');
+            const actionBtn = document.getElementById('modal-action-btn');
+
+            body.innerHTML = ''; // Clear previous content
+
+            if (modalState === 'limit') {
+                title.textContent = `Set Limit for Cartridge #${pendingAction.cartridge}`;
+                const currentLimit = document.getElementById(`cartridge-${pendingAction.cartridge}-limit`).textContent.replace(' L', '');
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label for="modal-input">New Limit (Liters)</label>
+                        <input type="number" id="modal-input" value="${currentLimit}">
+                    </div>`;
+                actionBtn.textContent = 'Next';
+                actionBtn.onclick = advanceModal;
+            } else if (modalState === 'user') {
+                title.textContent = 'Enter User ID';
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label for="modal-input">User ID</label>
+                        <input type="text" id="modal-input" value="drwtr01">
+                    </div>`;
+                actionBtn.textContent = 'Next';
+                actionBtn.onclick = advanceModal;
+            } else if (modalState === 'pass') {
+                title.textContent = 'Enter Password';
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label for="modal-input">Password</label>
+                        <input type="password" id="modal-input">
+                    </div>`;
+                actionBtn.textContent = 'Confirm';
+                actionBtn.onclick = advanceModal;
+            }
+            modal.classList.add('visible');
+            document.getElementById('modal-input').focus();
         }
         
-        function showSetLimitModal(cartridgeIndex) {
-            stopDataFetching();
-            pendingAction.cartridge = cartridgeIndex; // Store which cartridge we're editing
-            const currentLimit = document.getElementById(`cartridge-${cartridgeIndex}-limit`).textContent.replace(' L', '');
-            document.getElementById('new-limit-value').value = currentLimit;
-            document.getElementById('set-limit-title').textContent = `Set New Limit for Cartridge #${cartridgeIndex}`;
-            document.getElementById('set-limit-modal').classList.add('visible');
+        async function advanceModal() {
+            const input = document.getElementById('modal-input').value;
+
+            if (modalState === 'limit') {
+                if (!input || parseInt(input) <= 0) {
+                    alert('Please enter a valid limit > 0.'); return;
+                }
+                pendingAction.value = input;
+                modalState = 'user';
+                showModal();
+            } else if (modalState === 'user') {
+                pendingAction.user = input;
+                modalState = 'pass';
+                showModal();
+            } else if (modalState === 'pass') {
+                pendingAction.pass = input;
+                
+                let command = '';
+                if (pendingAction.type === 'hardReset') command = 'h';
+                else if (pendingAction.type === 'reset') command = `c=${pendingAction.cartridge}`;
+                else if (pendingAction.type === 'setLimit') command = `c${pendingAction.cartridge}=${pendingAction.value}`;
+                
+                hideModal();
+                if(command) {
+                    await sendSerialCommand(command, pendingAction.user, pendingAction.pass);
+                    await sleep(500);
+                    fetchData();
+                }
+            }
         }
 
-        function hideSetLimitModal() {
-            document.getElementById('set-limit-modal').classList.remove('visible');
+        function hideModal() {
+            document.getElementById('modal').classList.remove('visible');
             startDataFetching();
         }
 
-        document.getElementById('save-set-limit').onclick = function() {
-            const newLimit = document.getElementById('new-limit-value').value;
-            if (!newLimit || parseInt(newLimit) <= 0) {
-                alert('Please enter a valid limit greater than 0.');
-                return;
-            }
-            pendingAction.value = newLimit; // Store the new value
-            hideSetLimitModal();
-            showLogin('setLimit', pendingAction.cartridge); // Proceed to authentication
-        };
-
-        document.getElementById('submit-login').onclick = async function() {
-            const user = document.getElementById('user-id').value;
-            const pass = document.getElementById('password').value;
-            
-            let command = '';
-            if (pendingAction.type === 'hardReset') {
-                command = 'h';
-            } else if (pendingAction.type === 'reset') {
-                command = `c=${pendingAction.cartridge}`;
-            } else if (pendingAction.type === 'setLimit') {
-                command = `c${pendingAction.cartridge}=${pendingAction.value}`;
-            }
-
-            hideLogin(); // Hide modal immediately
-
-            if (command) {
-                await sendSerialCommand(command, user, pass);
-                await sleep(500); 
-                fetchData(); // Force one immediate update
-            }
-        };
-        
         function updateUI(data) {
             document.getElementById('total-volume').textContent = data.totalVolume.toFixed(2);
             document.getElementById('current-flow').textContent = data.currentSpeed.toFixed(2);
