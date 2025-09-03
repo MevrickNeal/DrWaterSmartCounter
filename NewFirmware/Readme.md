@@ -75,54 +75,17 @@ Hardware Required:
 
 Breadboard and Jumper Wires
 
-Wiring Diagram (Stable 3-Cartridge Prototype):
-Component
+## Wiring Diagram (Stable 3-Cartridge Prototype)
 
-Pin on NodeMCU
-
-Connection Details
-
-Flow Sensor (Signal)
-
-D4
-
-
-
-LED 1
-
-D1
-
-Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND
-
-LED 2
-
-D2
-
-Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND
-
-LED 3
-
-D5
-
-Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND
-
-Button 1
-
-D6
-
-Pin → Button → GND (Uses internal pull-up)
-
-Button 2
-
-D7
-
-Pin → Button → GND (Uses internal pull-up)
-
-Button 3
-
-D3
-
-Pin → Button → GND (Uses internal pull-up)
+| Component         | Pin on NodeMCU | Connection Details                                                |
+|-------------------|----------------|-------------------------------------------------------------------|
+| Flow Sensor       | D4             | Signal                                                            |
+| LED 1             | D1             | Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND            |
+| LED 2             | D2             | Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND            |
+| LED 3             | D5             | Pin → 220Ω Resistor → LED Anode (+), Cathode (-) → GND            |
+| Button 1          | D6             | Pin → Button → GND (Uses internal pull-up)                        |
+| Button 2          | D7             | Pin → Button → GND (Uses internal pull-up)                        |
+| Button 3          | D3             | Pin → Button → GND (Uses internal pull-up)                        |
 
 5. Version History (Changelog)
 v1.0: Initial Proof of Concept
