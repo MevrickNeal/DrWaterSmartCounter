@@ -27,7 +27,7 @@ This guide explains how to operate the device using the Web Serial monitoring to
 Prerequisites:
 The ESP8266 device, fully wired and programmed.
 
-The serial_monitor.html file saved on your computer.
+The test.html file saved on your computer.
 
 A compatible web browser (Google Chrome or Microsoft Edge).
 
