@@ -1,9 +1,18 @@
+// =============================================================================
+// Dr. Water Smart Counter - WEB APPLICATION UI
+// By Lian Mollick
+// Version: 3.6 (Final for ESP8266 Standalone Server)
+// This entire file should be placed in a tab named "index.h"
+// in the Arduino IDE.
+// =============================================================================
+
+const char HTML_CONTENT[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dr. Water - Serial Monitor</title>
+    <title>Dr. Water - Live System Monitor</title>
     <style>
         :root {
             --bg-color: #f0f2f5;
@@ -54,11 +63,6 @@
             color: #999;
             margin-left: 1rem;
         }
-        .connection-area {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
         .status-dot {
             width: 12px;
             height: 12px;
@@ -68,20 +72,6 @@
         }
         .status-dot.connected {
             background-color: var(--success-color);
-        }
-        #connect-btn {
-            padding: 0.6rem 1.2rem;
-            border: none;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            cursor: pointer;
-            background-color: var(--primary-color);
-            color: white;
-            transition: background-color 0.2s ease;
-        }
-        #connect-btn:hover {
-            background-color: #005bb5;
         }
         .card {
             background-color: var(--card-bg);
@@ -201,13 +191,10 @@
         <header class="header">
             <h1>
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
-                Dr. Water Serial Monitor
-                <span id="version-tag">v3.2 - UI Freeze Fix</span>
+                Dr. Water Live Monitor
+                <span id="version-tag">v3.6 - Standalone</span>
             </h1>
-            <div class="connection-area">
-                <div id="status-dot" class="status-dot"></div>
-                <button id="connect-btn">Connect</button>
-            </div>
+            <div id="status-dot" class="status-dot"></div>
         </header>
 
         <section class="card">
@@ -240,10 +227,10 @@
         </section>
     </div>
 
-    <!-- Admin Login Modal -->
-    <div id="login-modal" class="modal-overlay">
+    <!-- Universal Modal -->
+    <div id="modal" class="modal-overlay">
         <div class="modal-content">
-            <h2 id="login-title">Admin Authentication</h2>
+            <h2 id="modal-title">Admin Authentication</h2>
             <div id="limit-input-group" class="form-group" style="display: none;">
                 <label for="new-limit-value">New Limit (Liters)</label>
                 <input type="number" id="new-limit-value">
@@ -268,16 +255,8 @@
     </footer>
 
     <script>
-        const connectBtn = document.getElementById('connect-btn');
         const statusDot = document.getElementById('status-dot');
-        let port, reader, writer;
-        let keepReading = true;
-        
-        let pendingAction = {
-            type: null,
-            cartridge: null
-        };
-
+        let pendingAction = { type: null, cartridge: null };
         let dataFetchInterval = null;
 
         window.onload = function() {
@@ -304,33 +283,11 @@
                     </div>
                 `;
             }
+            startDataFetching();
         };
-
-        connectBtn.addEventListener('click', async () => {
-            if (port) {
-                keepReading = false;
-                if (reader) await reader.cancel();
-                if (writer) try { await writer.close(); } catch(e) {}
-                await port.close();
-                port = null; writer = null; reader = null;
-                connectBtn.textContent = 'Connect';
-                statusDot.classList.remove('connected');
-                stopDataFetching();
-            } else {
-                try {
-                    port = await navigator.serial.requestPort();
-                    await port.open({ baudRate: 9600 });
-                    connectBtn.textContent = 'Disconnect';
-                    statusDot.classList.add('connected');
-                    keepReading = true;
-                    readUntilClosed();
-                    startDataFetching();
-                } catch (error) { console.error('Error opening serial port:', error); }
-            }
-        });
         
         function startDataFetching() {
-            if (dataFetchInterval || !port) return;
+            if (dataFetchInterval) return;
             fetchData();
             dataFetchInterval = setInterval(fetchData, 2000);
         }
@@ -340,62 +297,39 @@
             dataFetchInterval = null;
         }
 
-        async function readUntilClosed() {
-            while (port && port.readable && keepReading) {
-                const textDecoder = new TextDecoderStream();
-                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable, { preventClose: true });
-                reader = textDecoder.readable.getReader();
-                try {
-                    let lineBuffer = '';
-                    while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) { reader.releaseLock(); break; }
-                        lineBuffer += value;
-                        const lines = lineBuffer.split('\r\n');
-                        lineBuffer = lines.pop(); 
-                        lines.forEach(line => {
-                            if (line.trim().startsWith('{')) {
-                                try { updateUI(JSON.parse(line)); } 
-                                catch (e) { console.warn("Could not parse JSON:", line); }
-                            } else if (line.trim().length > 0){
-                                console.log('MCU:', line); 
-                                if(line.includes("SUCCESS") || line.includes("ERROR") || line.includes("AUTH_ERROR")) {
-                                    alert(line);
-                                }
-                            }
-                        });
-                    }
-                } catch (error) { console.error('Read error:', error); break; }
+        async function fetchData() {
+            try {
+                const response = await fetch('/data');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                statusDot.classList.add('connected');
+                updateUI(data);
+            } catch (error) {
+                console.error('Fetch error:', error);
+                statusDot.classList.remove('connected');
             }
         }
 
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        async function sendSerialCommand(command, user, pass) {
-            if (!port || !port.writable) { alert('Not connected.'); return; }
-            const textEncoder = new TextEncoder();
-            writer = port.writable.getWriter();
-            await writer.write(textEncoder.encode(command + '\n'));
-            await sleep(100);
-            await writer.write(textEncoder.encode(user + '\n'));
-            await sleep(100);
-            await writer.write(textEncoder.encode(pass + '\n'));
-            writer.releaseLock();
-            console.log('Sent command:', command);
+        async function postCommand(endpoint, formData) {
+             try {
+                const response = await fetch(endpoint, { method: 'POST', body: formData });
+                const result = await response.text();
+                alert(result);
+                fetchData();
+             } catch (error) {
+                 alert('Error sending command: ' + error);
+             }
         }
         
-        // --- Redesigned Login Flow ---
         function showLogin(actionType, cartridgeIndex = null) {
             stopDataFetching();
-            if (actionType === 'hardReset' && !confirm('Are you sure you want to perform a hard reset? This will erase all data.')) {
+            if (actionType === 'hardReset' && !confirm('Are you sure? This will erase all data.')) {
                 startDataFetching(); return;
             }
             pendingAction.type = actionType;
             pendingAction.cartridge = cartridgeIndex;
             
-            const loginTitle = document.getElementById('login-title');
+            const loginTitle = document.getElementById('modal-title');
             const limitInputGroup = document.getElementById('limit-input-group');
 
             if (actionType === 'setLimit') {
@@ -409,11 +343,11 @@
             }
             
             document.getElementById('password').value = '';
-            document.getElementById('login-modal').classList.add('visible');
+            document.getElementById('modal').classList.add('visible');
         }
 
         function hideLogin() {
-            document.getElementById('login-modal').classList.remove('visible');
+            document.getElementById('modal').classList.remove('visible');
             startDataFetching();
         }
 
@@ -421,26 +355,41 @@
             const user = document.getElementById('user-id').value;
             const pass = document.getElementById('password').value;
             
-            let command = '';
+            const formData = new FormData();
+            formData.append('user', user);
+            formData.append('pass', pass);
+
+            let endpoint = '';
+            
             if (pendingAction.type === 'hardReset') {
-                command = 'h';
+                endpoint = '/command';
+                formData.append('cmd', 'h');
             } else if (pendingAction.type === 'reset') {
-                command = `c=${pendingAction.cartridge}`;
+                endpoint = '/command';
+                formData.append('cmd', `c=${pendingAction.cartridge}`);
             } else if (pendingAction.type === 'setLimit') {
-                const newLimit = document.getElementById('new-limit-value').value;
-                if (!newLimit || parseInt(newLimit) <= 0) {
-                    alert('Please enter a valid limit greater than 0.');
-                    return; 
+                endpoint = '/setlimits';
+                // When setting limits, the firmware expects all 3
+                for(let i=1; i<=3; i++) {
+                    let limitVal;
+                    if (i === pendingAction.cartridge) {
+                        limitVal = document.getElementById('new-limit-value').value;
+                        if (!limitVal || parseInt(limitVal) <= 0) {
+                           alert('Please enter a valid limit > 0.');
+                           startDataFetching();
+                           return; 
+                        }
+                    } else {
+                         limitVal = document.getElementById(`cartridge-${i}-limit`).textContent.replace(' L', '');
+                    }
+                     formData.append(`limit${i}`, limitVal);
                 }
-                command = `c${pendingAction.cartridge}=${newLimit}`;
             }
+            
+            hideLogin();
 
-            hideLogin(); // Hide modal immediately
-
-            if (command) {
-                await sendSerialCommand(command, user, pass);
-                await sleep(500); 
-                fetchData(); // Force one immediate update
+            if (endpoint) {
+                await postCommand(endpoint, formData);
             }
         };
         
@@ -468,3 +417,4 @@
     </script>
 </body>
 </html>
+)rawliteral";
